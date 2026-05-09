@@ -18,14 +18,40 @@ const App: React.FC = () => {
   const goHome = useProjectStore((s) => s.goHome);
   const goLyrics = useProjectStore((s) => s.goLyrics);
   const saveSegments = useProjectStore((s) => s.saveSegments);
+  const segmentsMap = useProjectStore((s) => s.segmentsMap);
   const segments = useSubtitleStore((s) => s.segments);
   const setSegments = useSubtitleStore((s) => s.setSegments);
 
   const activeJob = jobs.find((j) => j.id === activeJobId);
+  const activeJobIndex = jobs.findIndex((j) => j.id === activeJobId);
+  const currentReviewCount = segments.filter((s) => s.status === 'review').length;
+  const checkedCount = Math.max(0, segments.length - currentReviewCount);
+  const reviewProgress = segments.length > 0 ? Math.round((checkedCount / segments.length) * 100) : 0;
+  const nextReviewJob = jobs.find((job) => {
+    if (job.id === activeJobId) return false;
+    const jobSegments = segmentsMap[job.id] ?? [];
+    return jobSegments.some((segment) => segment.status === 'review');
+  });
 
   // ===== 歌词页拖入确认 =====
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isJobMenuOpen, setIsJobMenuOpen] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (page !== 'lyrics' || !activeJobId) return;
+    saveSegments(activeJobId, segments);
+    setSavedAt(new Date());
+  }, [page, activeJobId, segments, saveSegments]);
+
+  const getJobReviewCount = useCallback(
+    (jobId: string) => {
+      const jobSegments = jobId === activeJobId ? segments : (segmentsMap[jobId] ?? []);
+      return jobSegments.filter((segment) => segment.status === 'review').length;
+    },
+    [activeJobId, segments, segmentsMap]
+  );
 
   // 在离开歌词页时，保存当前字幕状态
   const handleGoHome = useCallback(() => {
@@ -34,6 +60,29 @@ const App: React.FC = () => {
     }
     goHome();
   }, [activeJobId, segments, saveSegments, goHome]);
+
+  const switchToJob = useCallback(
+    (jobId: string) => {
+      if (activeJobId) {
+        saveSegments(activeJobId, segments);
+      }
+      const nextSegments = jobId === activeJobId ? segments : (segmentsMap[jobId] ?? []);
+      setSegments(nextSegments);
+      goLyrics(jobId);
+      setIsJobMenuOpen(false);
+    },
+    [activeJobId, segments, segmentsMap, saveSegments, setSegments, goLyrics]
+  );
+
+  const handleOpenNextReview = useCallback(() => {
+    if (nextReviewJob) {
+      switchToJob(nextReviewJob.id);
+      return;
+    }
+    if (jobs.length <= 1 || activeJobIndex < 0) return;
+    const nextJob = jobs[(activeJobIndex + 1) % jobs.length];
+    switchToJob(nextJob.id);
+  }, [activeJobIndex, jobs, nextReviewJob, switchToJob]);
 
   // 歌词页拖入文件处理
   const handleLyricsDrop = useCallback(
@@ -160,13 +209,71 @@ const App: React.FC = () => {
             </svg>
           </button>
 
-          <div>
-            <h1 className="text-sm font-medium text-neutral-300">{activeJob?.fileName ?? '字幕复盘'}</h1>
-            <p className="text-[11px] text-neutral-500">{segments.length} 条字幕 · 双击编辑 · 点击跳转播放</p>
+          <div className="relative">
+            <button
+              onClick={() => setIsJobMenuOpen((open) => !open)}
+              className="flex max-w-[44vw] items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-neutral-800/70"
+              title="切换文件"
+            >
+              <span className="truncate text-sm font-medium text-neutral-200">
+                {activeJob?.fileName ?? '字幕复盘'}
+              </span>
+              {jobs.length > 1 && (
+                <svg className={`h-3.5 w-3.5 shrink-0 text-neutral-500 transition-transform ${isJobMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+              )}
+            </button>
+            <p className="px-1.5 text-[11px] text-neutral-500">
+              已检查 {checkedCount}/{segments.length}
+              <span className="mx-1.5 text-neutral-700">·</span>
+              {reviewProgress}%
+              <span className="mx-1.5 text-neutral-700">·</span>
+              {savedAt ? '已保存' : '保存中'}
+            </p>
+
+            {isJobMenuOpen && jobs.length > 1 && (
+              <div className="absolute left-0 top-full mt-2 w-80 overflow-hidden rounded-xl border border-neutral-700/60 bg-neutral-900/95 shadow-2xl backdrop-blur-xl">
+                <div className="max-h-80 overflow-auto p-1">
+                  {jobs.map((job) => {
+                    const reviewCount = getJobReviewCount(job.id);
+                    const isActive = job.id === activeJobId;
+                    return (
+                      <button
+                        key={job.id}
+                        onClick={() => switchToJob(job.id)}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                          isActive ? 'bg-blue-500/15 text-white' : 'text-neutral-300 hover:bg-neutral-800'
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{job.fileName}</span>
+                          <span className="mt-0.5 block text-xs text-neutral-500">
+                            {reviewCount > 0 ? `${reviewCount} 条待检查` : '已检查'}
+                          </span>
+                        </span>
+                        {isActive && (
+                          <span className="shrink-0 text-xs text-blue-300">当前</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
+          {jobs.length > 1 && (
+            <button
+              onClick={handleOpenNextReview}
+              className="px-3 py-1.5 text-xs rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 transition-colors"
+              title={nextReviewJob ? '打开下一个待检查文件' : '打开下一个文件'}
+            >
+              下一个
+            </button>
+          )}
           <ExportMenu />
         </div>
       </header>
