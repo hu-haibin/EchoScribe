@@ -278,10 +278,10 @@ const LyricsLine = React.memo<LyricsLineProps>(
               {hasEdit && isActive && (
                 <span className="ml-2 text-xs text-amber-400/50 font-normal align-super">已修改</span>
               )}
-              {segment.important && isActive && (
+              {segment.important && (
                 <span className="ml-2 text-xs text-amber-400/60 font-normal align-super">重点</span>
               )}
-              {segment.needsCheck && isActive && (
+              {segment.needsCheck && (
                 <span className="ml-2 text-xs text-sky-400/60 font-normal align-super">待确认</span>
               )}
             </p>

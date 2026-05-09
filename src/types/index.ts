@@ -21,7 +21,8 @@ export interface Job {
   id: string;
   fileName: string;
   fileType: string;
-  fileUrl: string;     // createObjectURL 的 URL
+  fileUrl: string;     // 当前会话 createObjectURL 的 URL，刷新后不可恢复
+  mediaAvailable: boolean; // 当前会话是否还能播放原始媒体
   state: JobState;
   progress: number;    // 0-100
 }

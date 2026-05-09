@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const goLyrics = useProjectStore((s) => s.goLyrics);
   const saveSegments = useProjectStore((s) => s.saveSegments);
   const segmentsMap = useProjectStore((s) => s.segmentsMap);
+  const updateJobMedia = useProjectStore((s) => s.updateJobMedia);
   const segments = useSubtitleStore((s) => s.segments);
   const setSegments = useSubtitleStore((s) => s.setSegments);
 
@@ -38,9 +39,21 @@ const App: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isJobMenuOpen, setIsJobMenuOpen] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const loadedJobRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (page !== 'lyrics' || !activeJobId) return;
+    if (loadedJobRef.current === activeJobId && segments.length > 0) return;
+    const storedSegments = segmentsMap[activeJobId] ?? [];
+    setSegments(storedSegments);
+    loadedJobRef.current = activeJobId;
+  }, [page, activeJobId, segments.length, segmentsMap, setSegments]);
+
+  useEffect(() => {
+    if (page !== 'lyrics' || !activeJobId) return;
+    const storedSegments = useProjectStore.getState().segmentsMap[activeJobId] ?? [];
+    if (segments.length === 0 && storedSegments.length > 0) return;
     saveSegments(activeJobId, segments);
     setSavedAt(new Date());
   }, [page, activeJobId, segments, saveSegments]);
@@ -72,6 +85,25 @@ const App: React.FC = () => {
       setIsJobMenuOpen(false);
     },
     [activeJobId, segments, segmentsMap, saveSegments, setSegments, goLyrics]
+  );
+
+  const handleRestoreMedia = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file || !activeJobId) return;
+
+      const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!ACCEPTED_EXTENSIONS.includes(ext)) return;
+
+      updateJobMedia(
+        activeJobId,
+        file.name,
+        file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
+        URL.createObjectURL(file)
+      );
+    },
+    [activeJobId, updateJobMedia]
   );
 
   const handleOpenNextReview = useCallback(() => {
@@ -113,6 +145,7 @@ const App: React.FC = () => {
       fileName: file.name,
       fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
       fileUrl: URL.createObjectURL(file),
+      mediaAvailable: true,
       state: 'done' as const,
       progress: 100,
     };
@@ -140,6 +173,7 @@ const App: React.FC = () => {
       fileName: file.name,
       fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
       fileUrl: URL.createObjectURL(file),
+      mediaAvailable: true,
       state: 'done' as const,
       progress: 100,
     };
@@ -171,6 +205,7 @@ const App: React.FC = () => {
         fileName: '复盘会议录音_demo.mp4',
         fileType: 'video/mp4',
         fileUrl: '',
+        mediaAvailable: false,
         state: 'done',
         progress: 100,
       });
@@ -284,10 +319,33 @@ const App: React.FC = () => {
       {/* 底部渐变遮罩 */}
       <div className="absolute bottom-[108px] left-0 right-0 h-24 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none z-10" />
 
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept={ACCEPTED_EXTENSIONS.join(',')}
+        className="hidden"
+        onChange={handleRestoreMedia}
+      />
+
       {/* 底部播放器 */}
-      {activeJob && (
-        <PlayerBar fileUrl={activeJob.fileUrl} fileType={activeJob.fileType} />
-      )}
+      {activeJob && activeJob.mediaAvailable ? (
+        <PlayerBar jobId={activeJob.id} fileUrl={activeJob.fileUrl} fileType={activeJob.fileType} />
+      ) : activeJob ? (
+        <div id="missing-media-panel" className="shrink-0 border-t border-neutral-800/60 bg-neutral-900/90 px-6 py-4">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-neutral-200">字幕进度已恢复，原始媒体需要重新选择</p>
+              <p className="mt-0.5 text-xs text-neutral-500">浏览器刷新后不会保留本地音视频文件；重新选择后会保留当前字幕和复核状态。</p>
+            </div>
+            <button
+              onClick={() => mediaInputRef.current?.click()}
+              className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs text-white transition-colors hover:bg-blue-500"
+            >
+              重新选择音视频
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* 拖拽覆盖层 */}
       {isDragOver && !pendingFile && (

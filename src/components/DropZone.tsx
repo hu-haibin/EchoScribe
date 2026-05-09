@@ -24,6 +24,7 @@ export const DropZone: React.FC = () => {
           fileName: file.name,
           fileType: file.type || `${ext.includes('mp') ? 'video' : 'audio'}/${ext.slice(1)}`,
           fileUrl: URL.createObjectURL(file),
+          mediaAvailable: true,
           state: 'done' as const,
           progress: 100,
         };

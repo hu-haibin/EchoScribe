@@ -54,6 +54,7 @@ export const HomePage: React.FC = () => {
         fileName: file.name,
         fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
         fileUrl: URL.createObjectURL(file),
+        mediaAvailable: true,
         state: 'done' as const,
         progress: 100,
       };

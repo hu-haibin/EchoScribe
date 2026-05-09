@@ -1,9 +1,11 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { usePlayerStore } from '../stores/usePlayerStore';
+import { useProjectStore } from '../stores/useProjectStore';
 import { PLAYBACK_RATES } from '../types';
 import type { PlaybackRate } from '../types';
 
 interface PlayerBarProps {
+  jobId: string;
   fileUrl: string;
   fileType: string;
 }
@@ -16,7 +18,7 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export const PlayerBar: React.FC<PlayerBarProps> = ({ fileUrl, fileType }) => {
+export const PlayerBar: React.FC<PlayerBarProps> = ({ jobId, fileUrl, fileType }) => {
   const mediaRef = useRef<HTMLVideoElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
@@ -35,6 +37,8 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ fileUrl, fileType }) => {
   const setMediaElement = usePlayerStore((s) => s.setMediaElement);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const seekTo = usePlayerStore((s) => s.seekTo);
+  const savePlaybackPosition = useProjectStore((s) => s.savePlaybackPosition);
+  const getPlaybackPosition = useProjectStore((s) => s.getPlaybackPosition);
 
   // 注册 media element
   useEffect(() => {
@@ -58,14 +62,22 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ fileUrl, fileType }) => {
   const onTimeUpdate = useCallback(() => {
     if (mediaRef.current) {
       setCurrentTime(mediaRef.current.currentTime);
+      savePlaybackPosition(jobId, mediaRef.current.currentTime);
     }
-  }, [setCurrentTime]);
+  }, [jobId, savePlaybackPosition, setCurrentTime]);
 
   const onLoadedMetadata = useCallback(() => {
     if (mediaRef.current) {
       setDuration(mediaRef.current.duration);
+      const savedPosition = getPlaybackPosition(jobId);
+      if (savedPosition > 0 && savedPosition < mediaRef.current.duration) {
+        mediaRef.current.currentTime = savedPosition;
+        setCurrentTime(savedPosition);
+      } else {
+        setCurrentTime(0);
+      }
     }
-  }, [setDuration]);
+  }, [getPlaybackPosition, jobId, setCurrentTime, setDuration]);
 
   const onPlay = useCallback(() => setPlaying(true), [setPlaying]);
   const onPause = useCallback(() => setPlaying(false), [setPlaying]);
