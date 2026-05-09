@@ -20,6 +20,12 @@ interface SubtitleState {
   /** 更新字幕标记 */
   updateStatus: (id: string, status: SegmentStatus) => void;
 
+  /** 切换重点标签 */
+  toggleImportant: (id: string) => void;
+
+  /** 切换待确认标签 */
+  toggleNeedsCheck: (id: string) => void;
+
   /** 根据当前时间二分查找活跃字幕索引 */
   getActiveIndex: (currentTime: number) => number;
 }
@@ -37,7 +43,9 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
   updateText: (id, text) =>
     set((s) => ({
       segments: s.segments.map((seg) =>
-        seg.id === id ? { ...seg, edited_text: text } : seg
+        seg.id === id
+          ? { ...seg, edited_text: text, status: seg.status === 'review' ? 'keep' : seg.status }
+          : seg
       ),
       editingId: null,
     })),
@@ -46,6 +54,20 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     set((s) => ({
       segments: s.segments.map((seg) =>
         seg.id === id ? { ...seg, status } : seg
+      ),
+    })),
+
+  toggleImportant: (id) =>
+    set((s) => ({
+      segments: s.segments.map((seg) =>
+        seg.id === id ? { ...seg, important: !seg.important } : seg
+      ),
+    })),
+
+  toggleNeedsCheck: (id) =>
+    set((s) => ({
+      segments: s.segments.map((seg) =>
+        seg.id === id ? { ...seg, needsCheck: !seg.needsCheck } : seg
       ),
     })),
 

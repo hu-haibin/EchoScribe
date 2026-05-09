@@ -10,17 +10,18 @@ interface SubtitleRowProps {
   onSaveEdit: (id: string, text: string) => void;
   onCancelEdit: () => void;
   onStatusChange: (id: string, status: SegmentStatus) => void;
+  onToggleImportant: (id: string) => void;
+  onToggleNeedsCheck: (id: string) => void;
   style: React.CSSProperties;
 }
 
 const STATUS_CONFIG: Record<SegmentStatus, { icon: string; label: string; color: string }> = {
+  review: { icon: '?', label: '待复核', color: 'text-blue-400' },
   keep: { icon: '✓', label: '保留', color: 'text-green-400' },
   delete: { icon: '✕', label: '删除', color: 'text-red-400' },
-  important: { icon: '★', label: '重点', color: 'text-amber-400' },
-  review: { icon: '?', label: '待检查', color: 'text-blue-400' },
 };
 
-const STATUS_CYCLE: SegmentStatus[] = ['keep', 'delete', 'important', 'review'];
+const STATUS_CYCLE: SegmentStatus[] = ['review', 'keep', 'delete'];
 
 /** 格式化秒数为 mm:ss */
 function formatTime(seconds: number): string {
@@ -30,7 +31,7 @@ function formatTime(seconds: number): string {
 }
 
 export const SubtitleRow = React.memo<SubtitleRowProps>(
-  ({ segment, isActive, isEditing, onSeek, onStartEdit, onSaveEdit, onCancelEdit, onStatusChange, style }) => {
+  ({ segment, isActive, isEditing, onSeek, onStartEdit, onSaveEdit, onCancelEdit, onStatusChange, onToggleImportant, onToggleNeedsCheck, style }) => {
     const [editText, setEditText] = useState(segment.edited_text);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -62,6 +63,14 @@ export const SubtitleRow = React.memo<SubtitleRowProps>(
       const nextStatus = STATUS_CYCLE[(currentIdx + 1) % STATUS_CYCLE.length];
       onStatusChange(segment.id, nextStatus);
     }, [segment.id, segment.status, onStatusChange]);
+
+    const toggleImportant = useCallback(() => {
+      onToggleImportant(segment.id);
+    }, [segment.id, onToggleImportant]);
+
+    const toggleNeedsCheck = useCallback(() => {
+      onToggleNeedsCheck(segment.id);
+    }, [segment.id, onToggleNeedsCheck]);
 
     const isDeleted = segment.status === 'delete';
     const statusInfo = STATUS_CONFIG[segment.status];
@@ -118,11 +127,17 @@ export const SubtitleRow = React.memo<SubtitleRowProps>(
               {hasEdit && (
                 <span className="ml-1.5 text-[10px] text-amber-500/60 align-super">已修改</span>
               )}
+              {segment.important && (
+                <span className="ml-1.5 text-[10px] text-amber-500/60 align-super">重点</span>
+              )}
+              {segment.needsCheck && (
+                <span className="ml-1.5 text-[10px] text-sky-400/60 align-super">待确认</span>
+              )}
             </p>
           )}
         </div>
 
-        {/* 状态标记 */}
+        {/* 状态和标签 */}
         <button
           onClick={cycleStatus}
           title={`${statusInfo.label} (点击切换)`}
@@ -134,6 +149,20 @@ export const SubtitleRow = React.memo<SubtitleRowProps>(
           `}
         >
           {statusInfo.icon}
+        </button>
+        <button
+          onClick={toggleImportant}
+          title={segment.important ? '取消重点' : '标为重点'}
+          className={`shrink-0 w-7 flex items-center justify-center text-sm opacity-40 group-hover:opacity-100 transition-opacity ${segment.important ? 'text-amber-400 opacity-100' : 'text-neutral-600 hover:text-amber-400'}`}
+        >
+          ★
+        </button>
+        <button
+          onClick={toggleNeedsCheck}
+          title={segment.needsCheck ? '取消待确认' : '标为待确认'}
+          className={`shrink-0 w-7 flex items-center justify-center text-sm font-bold opacity-40 group-hover:opacity-100 transition-opacity ${segment.needsCheck ? 'text-sky-400 opacity-100' : 'text-neutral-600 hover:text-sky-400'}`}
+        >
+          !
         </button>
       </div>
     );

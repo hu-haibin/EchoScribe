@@ -225,7 +225,7 @@ const App: React.FC = () => {
               )}
             </button>
             <p className="px-1.5 text-[11px] text-neutral-500">
-              已检查 {checkedCount}/{segments.length}
+              已复核 {checkedCount}/{segments.length}
               <span className="mx-1.5 text-neutral-700">·</span>
               {reviewProgress}%
               <span className="mx-1.5 text-neutral-700">·</span>
@@ -249,7 +249,7 @@ const App: React.FC = () => {
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">{job.fileName}</span>
                           <span className="mt-0.5 block text-xs text-neutral-500">
-                            {reviewCount > 0 ? `${reviewCount} 条待检查` : '已检查'}
+                            {reviewCount > 0 ? `${reviewCount} 条待复核` : '已复核'}
                           </span>
                         </span>
                         {isActive && (
@@ -269,7 +269,7 @@ const App: React.FC = () => {
             <button
               onClick={handleOpenNextReview}
               className="px-3 py-1.5 text-xs rounded-lg bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 transition-colors"
-              title={nextReviewJob ? '打开下一个待检查文件' : '打开下一个文件'}
+              title={nextReviewJob ? '打开下一个待复核文件' : '打开下一个文件'}
             >
               下一个
             </button>

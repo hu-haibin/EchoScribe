@@ -15,6 +15,8 @@ export const SubtitlePanel: React.FC = () => {
   const cancelEditing = useSubtitleStore((s) => s.cancelEditing);
   const updateText = useSubtitleStore((s) => s.updateText);
   const updateStatus = useSubtitleStore((s) => s.updateStatus);
+  const toggleImportant = useSubtitleStore((s) => s.toggleImportant);
+  const toggleNeedsCheck = useSubtitleStore((s) => s.toggleNeedsCheck);
   const getActiveIndex = useSubtitleStore((s) => s.getActiveIndex);
 
   const currentTime = usePlayerStore((s) => s.currentTime);
@@ -75,10 +77,11 @@ export const SubtitlePanel: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center gap-1 text-[10px] text-neutral-500">
-          <span className="text-green-400">✓</span>保留
+          <span className="text-blue-400">?</span>待复核
+          <span className="ml-1 text-green-400">✓</span>保留
           <span className="ml-1 text-red-400">✕</span>删除
           <span className="ml-1 text-amber-400">★</span>重点
-          <span className="ml-1 text-blue-400">?</span>待检查
+          <span className="ml-1 text-sky-400">!</span>待确认
         </div>
       </div>
 
@@ -108,6 +111,8 @@ export const SubtitlePanel: React.FC = () => {
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={cancelEditing}
                 onStatusChange={updateStatus}
+                onToggleImportant={toggleImportant}
+                onToggleNeedsCheck={toggleNeedsCheck}
                 style={{
                   position: 'absolute',
                   top: 0,

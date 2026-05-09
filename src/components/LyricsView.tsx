@@ -4,18 +4,21 @@ import { useSubtitleStore } from '../stores/useSubtitleStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import type { SegmentStatus } from '../types';
 
-const STATUS_CYCLE: SegmentStatus[] = ['keep', 'delete', 'important', 'review'];
+const STATUS_CYCLE: SegmentStatus[] = ['review', 'keep', 'delete'];
 const STATUS_ICONS: Record<SegmentStatus, string> = {
+  review: '?',
   keep: '✓',
   delete: '✕',
-  important: '★',
-  review: '?',
 };
 const STATUS_COLORS: Record<SegmentStatus, string> = {
+  review: 'text-blue-400',
   keep: 'text-green-400',
   delete: 'text-red-400',
-  important: 'text-amber-400',
-  review: 'text-blue-400',
+};
+const STATUS_LABELS: Record<SegmentStatus, string> = {
+  review: '待复核',
+  keep: '保留',
+  delete: '删除',
 };
 
 /** 格式化秒数为 mm:ss */
@@ -37,6 +40,8 @@ export const LyricsView: React.FC = () => {
   const cancelEditing = useSubtitleStore((s) => s.cancelEditing);
   const updateText = useSubtitleStore((s) => s.updateText);
   const updateStatus = useSubtitleStore((s) => s.updateStatus);
+  const toggleImportant = useSubtitleStore((s) => s.toggleImportant);
+  const toggleNeedsCheck = useSubtitleStore((s) => s.toggleNeedsCheck);
   const getActiveIndex = useSubtitleStore((s) => s.getActiveIndex);
 
   const currentTime = usePlayerStore((s) => s.currentTime);
@@ -129,6 +134,8 @@ export const LyricsView: React.FC = () => {
               onSaveEdit={updateText}
               onCancelEdit={cancelEditing}
               onStatusChange={updateStatus}
+              onToggleImportant={toggleImportant}
+              onToggleNeedsCheck={toggleNeedsCheck}
               style={{
                 position: 'absolute',
                 top: 0,
@@ -155,6 +162,8 @@ interface LyricsLineProps {
     raw_text: string;
     edited_text: string;
     status: SegmentStatus;
+    important: boolean;
+    needsCheck: boolean;
   };
   isActive: boolean;
   isEditing: boolean;
@@ -165,11 +174,13 @@ interface LyricsLineProps {
   onSaveEdit: (id: string, text: string) => void;
   onCancelEdit: () => void;
   onStatusChange: (id: string, status: SegmentStatus) => void;
+  onToggleImportant: (id: string) => void;
+  onToggleNeedsCheck: (id: string) => void;
   style: React.CSSProperties;
 }
 
 const LyricsLine = React.memo<LyricsLineProps>(
-  ({ segment, isActive, isEditing, isDeleted, opacity, onSeek, onStartEdit, onSaveEdit, onCancelEdit, onStatusChange, style }) => {
+  ({ segment, isActive, isEditing, isDeleted, opacity, onSeek, onStartEdit, onSaveEdit, onCancelEdit, onStatusChange, onToggleImportant, onToggleNeedsCheck, style }) => {
     const [editText, setEditText] = useState(segment.edited_text);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -205,7 +216,25 @@ const LyricsLine = React.memo<LyricsLineProps>(
       [segment.id, segment.status, onStatusChange]
     );
 
+    const toggleImportant = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onToggleImportant(segment.id);
+      },
+      [segment.id, onToggleImportant]
+    );
+
+    const toggleNeedsCheck = useCallback(
+      (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onToggleNeedsCheck(segment.id);
+      },
+      [segment.id, onToggleNeedsCheck]
+    );
+
     const hasEdit = segment.raw_text !== segment.edited_text;
+    const currentStatusIdx = STATUS_CYCLE.indexOf(segment.status);
+    const nextStatus = STATUS_CYCLE[(currentStatusIdx + 1) % STATUS_CYCLE.length];
 
     return (
       <div
@@ -249,6 +278,12 @@ const LyricsLine = React.memo<LyricsLineProps>(
               {hasEdit && isActive && (
                 <span className="ml-2 text-xs text-amber-400/50 font-normal align-super">已修改</span>
               )}
+              {segment.important && isActive && (
+                <span className="ml-2 text-xs text-amber-400/60 font-normal align-super">重点</span>
+              )}
+              {segment.needsCheck && isActive && (
+                <span className="ml-2 text-xs text-sky-400/60 font-normal align-super">待确认</span>
+              )}
             </p>
           )}
 
@@ -257,7 +292,7 @@ const LyricsLine = React.memo<LyricsLineProps>(
             absolute right-0 top-1/2 -translate-y-1/2 translate-x-[calc(100%+16px)]
             flex items-center gap-2 whitespace-nowrap
             transition-opacity duration-300
-            ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-70'}
+            ${isActive ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'}
           `}>
             <span className="text-xs font-mono text-neutral-500 tabular-nums">
               {formatTime(segment.start)}
@@ -265,9 +300,23 @@ const LyricsLine = React.memo<LyricsLineProps>(
             <button
               onClick={cycleStatus}
               className={`text-sm ${STATUS_COLORS[segment.status]} hover:scale-125 transition-transform`}
-              title={`点击切换标记`}
+              title={`当前${STATUS_LABELS[segment.status]}，点击改为${STATUS_LABELS[nextStatus]}`}
             >
               {STATUS_ICONS[segment.status]}
+            </button>
+            <button
+              onClick={toggleImportant}
+              className={`text-sm transition-transform hover:scale-125 ${segment.important ? 'text-amber-400' : 'text-neutral-600 hover:text-amber-400'}`}
+              title={segment.important ? '取消重点' : '标为重点'}
+            >
+              ★
+            </button>
+            <button
+              onClick={toggleNeedsCheck}
+              className={`text-sm font-bold transition-transform hover:scale-125 ${segment.needsCheck ? 'text-sky-400' : 'text-neutral-600 hover:text-sky-400'}`}
+              title={segment.needsCheck ? '取消待确认' : '标为待确认'}
+            >
+              !
             </button>
           </div>
         </div>
@@ -279,5 +328,7 @@ const LyricsLine = React.memo<LyricsLineProps>(
     prev.isActive === next.isActive &&
     prev.isEditing === next.isEditing &&
     prev.opacity === next.opacity &&
+    prev.segment.important === next.segment.important &&
+    prev.segment.needsCheck === next.segment.needsCheck &&
     prev.style.transform === next.style.transform
 );

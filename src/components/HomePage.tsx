@@ -140,7 +140,8 @@ export const HomePage: React.FC = () => {
       total: segs.length,
       keep: segs.filter((s) => s.status === 'keep').length,
       deleted: segs.filter((s) => s.status === 'delete').length,
-      important: segs.filter((s) => s.status === 'important').length,
+      important: segs.filter((s) => s.important).length,
+      needsCheck: segs.filter((s) => s.needsCheck).length,
       review,
       progress: segs.length > 0 ? Math.round((reviewed / segs.length) * 100) : 0,
     };
@@ -207,7 +208,7 @@ export const HomePage: React.FC = () => {
                   <span className="mx-1.5 text-neutral-700">·</span>
                   {workspaceStats.totalSegments} 条字幕
                   <span className="mx-1.5 text-neutral-700">·</span>
-                  {workspaceStats.review} 条待检查
+                  {workspaceStats.review} 条待复核
                 </p>
               </div>
               {firstReviewJob && (
@@ -269,7 +270,7 @@ export const HomePage: React.FC = () => {
                             </span>
                           ) : (
                             <span className="shrink-0 rounded-md bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-300">
-                              已检查
+                              已复核
                             </span>
                           )}
                         </div>
@@ -284,7 +285,13 @@ export const HomePage: React.FC = () => {
                               <span className="mx-1 text-neutral-700">·</span>
                               <span className="text-amber-400">{stats.important}</span> 重点
                               <span className="mx-1 text-neutral-700">·</span>
-                              <span className="text-blue-400">{stats.review}</span> 待检查
+                              <span className="text-blue-400">{stats.review}</span> 待复核
+                              {stats.needsCheck > 0 && (
+                                <>
+                                  <span className="mx-1 text-neutral-700">·</span>
+                                  <span className="text-sky-400">{stats.needsCheck}</span> 待确认
+                                </>
+                              )}
                             </>
                           ) : (
                             '等待转写...'

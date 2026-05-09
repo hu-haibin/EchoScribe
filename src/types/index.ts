@@ -1,5 +1,5 @@
 /** 字幕状态 */
-export type SegmentStatus = 'keep' | 'delete' | 'important' | 'review';
+export type SegmentStatus = 'review' | 'keep' | 'delete';
 
 /** 单条字幕 */
 export interface Segment {
@@ -9,6 +9,8 @@ export interface Segment {
   raw_text: string;    // AI 原始识别
   edited_text: string; // 用户修改后
   status: SegmentStatus;
+  important: boolean;  // 重点标签
+  needsCheck: boolean; // 待确认标签
 }
 
 /** 任务状态 */

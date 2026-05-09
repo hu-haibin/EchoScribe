@@ -68,8 +68,6 @@ const EDITED_SENTENCES = [
   '然后呢然后呢我们继续往下说',
 ];
 
-const STATUS_OPTIONS: Segment['status'][] = ['keep', 'keep', 'keep', 'keep', 'delete', 'important', 'review'];
-
 function seededRandom(seed: number): () => number {
   let s = seed;
   return () => {
@@ -90,15 +88,15 @@ export function generateMockSegments(count: MockSize): Segment[] {
     const end = start + duration;
 
     const idx = Math.floor(rand() * RAW_SENTENCES.length);
-    const statusIdx = Math.floor(rand() * STATUS_OPTIONS.length);
-
     segments.push({
       id: `seg_${String(i + 1).padStart(4, '0')}`,
       start: Math.round(start * 100) / 100,
       end: Math.round(end * 100) / 100,
       raw_text: RAW_SENTENCES[idx],
       edited_text: EDITED_SENTENCES[idx],
-      status: STATUS_OPTIONS[statusIdx],
+      status: 'review',
+      important: false,
+      needsCheck: false,
     });
 
     currentTime = end;
