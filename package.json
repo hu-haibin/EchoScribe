@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --host 127.0.0.1",
+    "asr:up": "docker compose -f docker-compose.local-asr.yml up --build",
+    "asr:down": "docker compose -f docker-compose.local-asr.yml down",
+    "asr:logs": "docker compose -f docker-compose.local-asr.yml logs -f local-asr",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

@@ -22,6 +22,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ jobId, fileUrl, fileType }
   const mediaRef = useRef<HTMLVideoElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [isVideoPreviewCollapsed, setIsVideoPreviewCollapsed] = useState(false);
   const speedMenuRef = useRef<HTMLDivElement>(null);
 
   const currentTime = usePlayerStore((s) => s.currentTime);
@@ -115,17 +116,31 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ jobId, fileUrl, fileType }
 
   return (
     <div id="player-bar" className="shrink-0 bg-neutral-900/80 backdrop-blur-xl border-t border-neutral-800/60">
-      {/* 隐藏的 media element */}
       {isVideo ? (
-        <video
-          ref={mediaRef}
-          src={fileUrl}
-          className="hidden"
-          onTimeUpdate={onTimeUpdate}
-          onLoadedMetadata={onLoadedMetadata}
-          onPlay={onPlay}
-          onPause={onPause}
-        />
+        <div className="border-b border-neutral-800/60 bg-black">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2">
+            <span className="text-xs text-neutral-500">视频预览</span>
+            <button
+              onClick={() => setIsVideoPreviewCollapsed((collapsed) => !collapsed)}
+              className="rounded-md px-2 py-1 text-xs text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
+            >
+              {isVideoPreviewCollapsed ? '显示画面' : '隐藏画面'}
+            </button>
+          </div>
+          <div className={isVideoPreviewCollapsed ? 'hidden' : 'mx-auto max-h-[240px] max-w-5xl overflow-hidden px-4 pb-3'}>
+            <video
+              ref={mediaRef}
+              src={fileUrl}
+              playsInline
+              onClick={togglePlay}
+              className="mx-auto aspect-video max-h-[220px] w-full rounded-md bg-black object-contain"
+              onTimeUpdate={onTimeUpdate}
+              onLoadedMetadata={onLoadedMetadata}
+              onPlay={onPlay}
+              onPause={onPause}
+            />
+          </div>
+        </div>
       ) : (
         <audio
           ref={mediaRef as React.RefObject<HTMLAudioElement>}

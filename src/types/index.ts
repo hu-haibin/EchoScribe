@@ -25,6 +25,12 @@ export interface Job {
   mediaAvailable: boolean; // 当前会话是否还能播放原始媒体
   state: JobState;
   progress: number;    // 0-100
+  asrProvider?: string;
+  asrModel?: string;
+  asrAligner?: string;
+  durationSeconds?: number;
+  errorMessage?: string;
+  warnings?: string[];
 }
 
 /** 倍速选项 */

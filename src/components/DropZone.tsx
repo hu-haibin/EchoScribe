@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useRef } from 'react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useSubtitleStore } from '../stores/useSubtitleStore';
-import { generateMockSegments } from '../mock/mockSegments';
+import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia } from '../services/transcription';
 
 const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a'];
 
@@ -11,10 +11,11 @@ export const DropZone: React.FC = () => {
   const addJob = useProjectStore((s) => s.addJob);
   const saveSegments = useProjectStore((s) => s.saveSegments);
   const goLyrics = useProjectStore((s) => s.goLyrics);
+  const updateJob = useProjectStore((s) => s.updateJob);
 
   const handleFiles = useCallback(
     (files: FileList) => {
-      Array.from(files).forEach((file) => {
+      Array.from(files).forEach(async (file) => {
         const ext = '.' + file.name.split('.').pop()?.toLowerCase();
         if (!ACCEPTED_EXTENSIONS.includes(ext)) return;
 
@@ -25,18 +26,41 @@ export const DropZone: React.FC = () => {
           fileType: file.type || `${ext.includes('mp') ? 'video' : 'audio'}/${ext.slice(1)}`,
           fileUrl: URL.createObjectURL(file),
           mediaAvailable: true,
-          state: 'done' as const,
-          progress: 100,
+          state: 'transcribing' as const,
+          progress: 10,
+          asrProvider: LOCAL_ASR_PROVIDER,
+          asrModel: DEFAULT_ASR_MODEL,
+          asrAligner: DEFAULT_ASR_ALIGNER,
         };
 
-        const segments = generateMockSegments(500);
         addJob(job);
-        saveSegments(jobId, segments);
-        useSubtitleStore.getState().setSegments(segments);
-        goLyrics(jobId);
+        saveSegments(jobId, []);
+
+        try {
+          const result = await transcribeMedia(file);
+          saveSegments(jobId, result.segments);
+          updateJob(jobId, {
+            state: 'done',
+            progress: 100,
+            asrProvider: result.provider,
+            asrModel: result.model,
+            asrAligner: result.aligner,
+            durationSeconds: result.durationSeconds,
+            warnings: result.warnings,
+            errorMessage: undefined,
+          });
+          useSubtitleStore.getState().setSegments(result.segments);
+          goLyrics(jobId);
+        } catch (error) {
+          updateJob(jobId, {
+            state: 'error',
+            progress: 0,
+            errorMessage: error instanceof Error ? error.message : '本地识别失败',
+          });
+        }
       });
     },
-    [addJob, saveSegments, goLyrics]
+    [addJob, saveSegments, goLyrics, updateJob]
   );
 
   const onDrop = useCallback(

@@ -1,8 +1,8 @@
 import React, { useCallback, useState, useRef } from 'react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useSubtitleStore } from '../stores/useSubtitleStore';
-import { generateMockSegments } from '../mock/mockSegments';
-import type { Segment } from '../types';
+import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia } from '../services/transcription';
+import type { Job, Segment } from '../types';
 
 const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a'];
 
@@ -34,6 +34,7 @@ export const HomePage: React.FC = () => {
   const goLyrics = useProjectStore((s) => s.goLyrics);
   const saveSegments = useProjectStore((s) => s.saveSegments);
   const segmentsMap = useProjectStore((s) => s.segmentsMap);
+  const updateJob = useProjectStore((s) => s.updateJob);
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [importSummary, setImportSummary] = useState<{
@@ -42,6 +43,57 @@ export const HomePage: React.FC = () => {
     jobIds: string[];
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const transcriptionQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const runTranscription = useCallback(
+    async (jobId: string, file: File, openWhenDone: boolean) => {
+      updateJob(jobId, {
+        state: 'transcribing',
+        progress: 12,
+        errorMessage: undefined,
+        asrProvider: LOCAL_ASR_PROVIDER,
+        asrModel: DEFAULT_ASR_MODEL,
+        asrAligner: DEFAULT_ASR_ALIGNER,
+      });
+
+      try {
+        const result = await transcribeMedia(file);
+        saveSegments(jobId, result.segments);
+        updateJob(jobId, {
+          state: 'done',
+          progress: 100,
+          asrProvider: result.provider,
+          asrModel: result.model,
+          asrAligner: result.aligner,
+          durationSeconds: result.durationSeconds,
+          warnings: result.warnings,
+          errorMessage: undefined,
+        });
+
+        if (openWhenDone) {
+          useSubtitleStore.getState().setSegments(result.segments);
+          goLyrics(jobId);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '本地识别失败';
+        updateJob(jobId, {
+          state: 'error',
+          progress: 0,
+          errorMessage: message,
+        });
+      }
+    },
+    [goLyrics, saveSegments, updateJob]
+  );
+
+  const enqueueTranscription = useCallback(
+    (jobId: string, file: File, openWhenDone: boolean) => {
+      transcriptionQueueRef.current = transcriptionQueueRef.current
+        .catch(() => undefined)
+        .then(() => runTranscription(jobId, file, openWhenDone));
+    },
+    [runTranscription]
+  );
 
   const createJobFromFile = useCallback(
     (file: File) => {
@@ -49,29 +101,30 @@ export const HomePage: React.FC = () => {
       if (!ACCEPTED_EXTENSIONS.includes(ext)) return null;
 
       const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const job = {
+      const job: Job = {
         id: jobId,
         fileName: file.name,
         fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
         fileUrl: URL.createObjectURL(file),
         mediaAvailable: true,
-        state: 'done' as const,
-        progress: 100,
+        state: 'transcribing',
+        progress: 5,
+        asrProvider: LOCAL_ASR_PROVIDER,
+        asrModel: DEFAULT_ASR_MODEL,
+        asrAligner: DEFAULT_ASR_ALIGNER,
       };
 
-      // MVP: 生成 mock 字幕
-      const segments = generateMockSegments(500);
       addJob(job);
-      saveSegments(jobId, segments);
+      saveSegments(jobId, []);
 
-      return { jobId, segments };
+      return { jobId, file };
     },
     [addJob, saveSegments]
   );
 
   const importFiles = useCallback(
     (files: File[]) => {
-      const created: Array<{ jobId: string; segments: Segment[] }> = [];
+      const created: Array<{ jobId: string; file: File }> = [];
       let skipped = 0;
 
       files.forEach((file) => {
@@ -88,21 +141,17 @@ export const HomePage: React.FC = () => {
         return;
       }
 
-      // 单文件导入保持快速路径；多文件导入停留在任务工作台，先建立全局感。
-      if (files.length === 1 && created.length === 1) {
-        setImportSummary(null);
-        useSubtitleStore.getState().setSegments(created[0].segments);
-        goLyrics(created[0].jobId);
-        return;
-      }
-
       setImportSummary({
         added: created.length,
         skipped,
         jobIds: created.map((item) => item.jobId),
       });
+
+      created.forEach((item) => {
+        enqueueTranscription(item.jobId, item.file, files.length === 1 && created.length === 1);
+      });
     },
-    [createJobFromFile, goLyrics]
+    [createJobFromFile, enqueueTranscription]
   );
 
   const handleDrop = useCallback(
@@ -126,11 +175,13 @@ export const HomePage: React.FC = () => {
 
   const openJob = useCallback(
     (jobId: string) => {
+      const job = jobs.find((item) => item.id === jobId);
+      if (job?.state === 'transcribing' && (segmentsMap[jobId] ?? []).length === 0) return;
       const segs = segmentsMap[jobId] ?? [];
       useSubtitleStore.getState().setSegments(segs);
       goLyrics(jobId);
     },
-    [segmentsMap, goLyrics]
+    [jobs, segmentsMap, goLyrics]
   );
 
   const getJobStats = (jobId: string) => {
@@ -158,12 +209,18 @@ export const HomePage: React.FC = () => {
     { totalSegments: 0, review: 0 }
   );
 
-  const firstReviewJob = jobs.find((job) => getJobStats(job.id).review > 0) ?? jobs[0];
+  const firstReviewJob =
+    jobs.find((job) => getJobStats(job.id).review > 0) ??
+    jobs.find((job) => (segmentsMap[job.id] ?? []).length > 0);
+  const transcribingCount = jobs.filter((job) => job.state === 'transcribing').length;
 
   const startImportBatch = useCallback(() => {
-    const jobId = importSummary?.jobIds.find((id) => jobs.some((job) => job.id === id)) ?? firstReviewJob?.id;
+    const jobId = importSummary?.jobIds.find((id) => (segmentsMap[id] ?? []).length > 0) ?? firstReviewJob?.id;
     if (jobId) openJob(jobId);
-  }, [firstReviewJob?.id, importSummary?.jobIds, jobs, openJob]);
+  }, [firstReviewJob?.id, importSummary?.jobIds, segmentsMap, openJob]);
+  const canStartImportBatch = Boolean(
+    importSummary?.jobIds.some((id) => (segmentsMap[id] ?? []).length > 0) || firstReviewJob
+  );
 
   return (
     <div
@@ -210,6 +267,12 @@ export const HomePage: React.FC = () => {
                   {workspaceStats.totalSegments} 条字幕
                   <span className="mx-1.5 text-neutral-700">·</span>
                   {workspaceStats.review} 条待复核
+                  {transcribingCount > 0 && (
+                    <>
+                      <span className="mx-1.5 text-neutral-700">·</span>
+                      {transcribingCount} 个识别中
+                    </>
+                  )}
                 </p>
               </div>
               {firstReviewJob && (
@@ -231,15 +294,18 @@ export const HomePage: React.FC = () => {
                   <p className="mt-0.5 text-xs text-blue-200/60">
                     {importSummary.skipped > 0
                       ? `已跳过 ${importSummary.skipped} 个不支持的文件`
-                      : '多文件会先留在任务工作台，方便你确认队列再开始复核'}
+                      : importSummary.added === 1
+                        ? '正在本地识别，完成后会自动进入复核'
+                        : '多文件会先留在任务工作台，方便你确认队列再开始复核'}
                   </p>
                 </div>
                 {importSummary.added > 0 && (
                   <button
                     onClick={startImportBatch}
-                    className="shrink-0 px-3 py-2 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                    disabled={!canStartImportBatch}
+                    className="shrink-0 px-3 py-2 text-xs rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
                   >
-                    复核第一个
+                    {canStartImportBatch ? '复核第一个' : '识别完成后复核'}
                   </button>
                 )}
               </div>
@@ -265,7 +331,15 @@ export const HomePage: React.FC = () => {
                           <p className="truncate text-sm font-medium text-neutral-200 transition-colors group-hover:text-white">
                             {job.fileName}
                           </p>
-                          {stats.review > 0 ? (
+                          {job.state === 'transcribing' ? (
+                            <span className="shrink-0 rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                              识别中
+                            </span>
+                          ) : job.state === 'error' ? (
+                            <span className="shrink-0 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">
+                              失败
+                            </span>
+                          ) : stats.review > 0 ? (
                             <span className="shrink-0 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
                               待复核
                             </span>
@@ -276,7 +350,17 @@ export const HomePage: React.FC = () => {
                           )}
                         </div>
                         <p className="mt-0.5 text-xs text-neutral-500">
-                          {stats.total > 0 ? (
+                          {job.state === 'transcribing' ? (
+                            <>
+                              本地 Qwen3-ASR 正在识别
+                              <span className="mx-1.5 text-neutral-700">·</span>
+                              {job.progress}%
+                            </>
+                          ) : job.state === 'error' ? (
+                            <span className="text-red-300/80">
+                              {job.errorMessage || '本地识别失败，重新导入文件即可重试'}
+                            </span>
+                          ) : stats.total > 0 ? (
                             <>
                               {stats.total} 条字幕
                               <span className="mx-1.5 text-neutral-700">·</span>
@@ -298,11 +382,11 @@ export const HomePage: React.FC = () => {
                             '等待转写...'
                           )}
                         </p>
-                        {stats.total > 0 && (
+                        {(stats.total > 0 || job.state === 'transcribing') && (
                           <div className="mt-2 h-1 overflow-hidden rounded-full bg-neutral-800">
                             <div
-                              className="h-full rounded-full bg-blue-500 transition-all"
-                              style={{ width: `${stats.progress}%` }}
+                              className={`h-full rounded-full transition-all ${job.state === 'transcribing' ? 'bg-cyan-400' : 'bg-blue-500'}`}
+                              style={{ width: `${job.state === 'transcribing' ? job.progress : stats.progress}%` }}
                             />
                           </div>
                         )}

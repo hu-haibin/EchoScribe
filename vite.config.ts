@@ -7,4 +7,15 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        timeout: 60 * 60 * 1000,
+        proxyTimeout: 60 * 60 * 1000,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
 })

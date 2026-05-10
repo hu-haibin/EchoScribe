@@ -24,6 +24,7 @@ interface ProjectState {
   addJob: (job: Job) => void;
   removeJob: (jobId: string) => void;
   setActiveJob: (jobId: string) => void;
+  updateJob: (jobId: string, patch: Partial<Job>) => void;
   updateJobMedia: (jobId: string, fileName: string, fileType: string, fileUrl: string) => void;
 
   // 字幕存储
@@ -70,11 +71,18 @@ export const useProjectStore = create<ProjectState>()(
 
       setActiveJob: (jobId) => set({ activeJobId: jobId }),
 
+      updateJob: (jobId, patch) =>
+        set((s) => ({
+          jobs: s.jobs.map((job) =>
+            job.id === jobId ? { ...job, ...patch, id: job.id } : job
+          ),
+        })),
+
       updateJobMedia: (jobId, fileName, fileType, fileUrl) =>
         set((s) => ({
           jobs: s.jobs.map((job) =>
             job.id === jobId
-              ? { ...job, fileName, fileType, fileUrl, mediaAvailable: true }
+              ? { ...job, fileName, fileType, fileUrl, mediaAvailable: true, errorMessage: undefined }
               : job
           ),
         })),

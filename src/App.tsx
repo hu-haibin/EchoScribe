@@ -7,6 +7,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSubtitleStore } from './stores/useSubtitleStore';
 import { generateMockSegments } from './mock/mockSegments';
+import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia } from './services/transcription';
 
 const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a'];
 
@@ -19,6 +20,7 @@ const App: React.FC = () => {
   const goLyrics = useProjectStore((s) => s.goLyrics);
   const saveSegments = useProjectStore((s) => s.saveSegments);
   const segmentsMap = useProjectStore((s) => s.segmentsMap);
+  const updateJob = useProjectStore((s) => s.updateJob);
   const updateJobMedia = useProjectStore((s) => s.updateJobMedia);
   const segments = useSubtitleStore((s) => s.segments);
   const setSegments = useSubtitleStore((s) => s.setSegments);
@@ -134,35 +136,57 @@ const App: React.FC = () => {
   );
 
   // 确认弹窗：替换当前
-  const handleReplace = useCallback(() => {
+  const handleReplace = useCallback(async () => {
     if (!pendingFile || !activeJobId) return;
     const file = pendingFile;
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    const jobId = activeJobId;
 
-    // 更新当前 job
-    const newJob = {
-      id: activeJobId,
+    updateJob(jobId, {
       fileName: file.name,
       fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
       fileUrl: URL.createObjectURL(file),
       mediaAvailable: true,
-      state: 'done' as const,
-      progress: 100,
-    };
-
-    // MVP: 生成新 mock 字幕
-    const newSegments = generateMockSegments(500);
-    // Remove old job, add new one with same id
-    useProjectStore.getState().removeJob(activeJobId);
-    addJob(newJob);
-    saveSegments(activeJobId, newSegments);
-    setSegments(newSegments);
-    goLyrics(activeJobId);
+      state: 'transcribing',
+      progress: 10,
+      asrProvider: LOCAL_ASR_PROVIDER,
+      asrModel: DEFAULT_ASR_MODEL,
+      asrAligner: DEFAULT_ASR_ALIGNER,
+      errorMessage: undefined,
+      warnings: [],
+    });
+    saveSegments(jobId, []);
+    setSegments([]);
+    goLyrics(jobId);
     setPendingFile(null);
-  }, [pendingFile, activeJobId, addJob, saveSegments, setSegments, goLyrics]);
+
+    try {
+      const result = await transcribeMedia(file);
+      saveSegments(jobId, result.segments);
+      updateJob(jobId, {
+        state: 'done',
+        progress: 100,
+        asrProvider: result.provider,
+        asrModel: result.model,
+        asrAligner: result.aligner,
+        durationSeconds: result.durationSeconds,
+        warnings: result.warnings,
+        errorMessage: undefined,
+      });
+      if (useProjectStore.getState().activeJobId === jobId) {
+        setSegments(result.segments);
+      }
+    } catch (error) {
+      updateJob(jobId, {
+        state: 'error',
+        progress: 0,
+        errorMessage: error instanceof Error ? error.message : '本地识别失败',
+      });
+    }
+  }, [pendingFile, activeJobId, updateJob, saveSegments, setSegments, goLyrics]);
 
   // 确认弹窗：新建任务
-  const handleNewTask = useCallback(() => {
+  const handleNewTask = useCallback(async () => {
     if (!pendingFile) return;
     const file = pendingFile;
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -174,11 +198,12 @@ const App: React.FC = () => {
       fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
       fileUrl: URL.createObjectURL(file),
       mediaAvailable: true,
-      state: 'done' as const,
-      progress: 100,
+      state: 'transcribing' as const,
+      progress: 10,
+      asrProvider: LOCAL_ASR_PROVIDER,
+      asrModel: DEFAULT_ASR_MODEL,
+      asrAligner: DEFAULT_ASR_ALIGNER,
     };
-
-    const newSegments = generateMockSegments(500);
 
     // 先保存当前歌词页状态
     if (activeJobId) {
@@ -186,10 +211,31 @@ const App: React.FC = () => {
     }
 
     addJob(job);
-    saveSegments(jobId, newSegments);
+    saveSegments(jobId, []);
     setPendingFile(null);
     goHome();
-  }, [pendingFile, activeJobId, segments, addJob, saveSegments, goHome]);
+
+    try {
+      const result = await transcribeMedia(file);
+      saveSegments(jobId, result.segments);
+      updateJob(jobId, {
+        state: 'done',
+        progress: 100,
+        asrProvider: result.provider,
+        asrModel: result.model,
+        asrAligner: result.aligner,
+        durationSeconds: result.durationSeconds,
+        warnings: result.warnings,
+        errorMessage: undefined,
+      });
+    } catch (error) {
+      updateJob(jobId, {
+        state: 'error',
+        progress: 0,
+        errorMessage: error instanceof Error ? error.message : '本地识别失败',
+      });
+    }
+  }, [pendingFile, activeJobId, segments, addJob, saveSegments, goHome, updateJob]);
 
   // ===== URL demo 模式 =====
   const demoInitRef = useRef(false);
@@ -317,7 +363,11 @@ const App: React.FC = () => {
       <LyricsView />
 
       {/* 底部渐变遮罩 */}
-      <div className="absolute bottom-[108px] left-0 right-0 h-24 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none z-10" />
+      <div
+        className={`absolute left-0 right-0 h-24 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none z-10 ${
+          activeJob?.mediaAvailable && activeJob.fileType.startsWith('video') ? 'bottom-[330px]' : 'bottom-[108px]'
+        }`}
+      />
 
       <input
         ref={mediaInputRef}
