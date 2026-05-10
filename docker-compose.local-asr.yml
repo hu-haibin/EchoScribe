@@ -1,0 +1,25 @@
+name: echoscribe
+
+services:
+  local-asr:
+    build:
+      context: ./local-asr
+    image: echoscribe-local-asr:latest
+    container_name: echoscribe-local-asr
+    ports:
+      - "127.0.0.1:8787:8787"
+    gpus: all
+    environment:
+      QWEN3_ASR_MODEL: ${QWEN3_ASR_MODEL:-Qwen/Qwen3-ASR-1.7B}
+      QWEN3_ASR_FALLBACK_MODEL: ${QWEN3_ASR_FALLBACK_MODEL:-Qwen/Qwen3-ASR-0.6B}
+      QWEN3_ALIGNER_MODEL: ${QWEN3_ALIGNER_MODEL:-Qwen/Qwen3-ForcedAligner-0.6B}
+      QWEN3_USE_ALIGNER: ${QWEN3_USE_ALIGNER:-true}
+      QWEN3_CHUNK_SECONDS: ${QWEN3_CHUNK_SECONDS:-600}
+      QWEN3_MAX_BATCH_SIZE: ${QWEN3_MAX_BATCH_SIZE:-8}
+      QWEN3_MAX_NEW_TOKENS: ${QWEN3_MAX_NEW_TOKENS:-2048}
+      HF_HOME: /models/huggingface
+      MODELSCOPE_CACHE: /models/modelscope
+    volumes:
+      - ./.cache/local-asr:/models
+    shm_size: "4gb"
+    restart: unless-stopped

@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 test-results
+.cache
+__pycache__
+*.py[cod]
+local-asr/tmp
+local-asr/uploads
+local-asr/models
 *.local
 
 # Editor directories and files
