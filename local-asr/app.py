@@ -6,8 +6,11 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +38,81 @@ _model: Any | None = None
 _model_name: str | None = None
 _aligner_name: str | None = None
 _device: str | None = None
+_jobs: dict[str, dict[str, Any]] = {}
+_jobs_guard = threading.Lock()
+_job_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _set_job(job_id: str, **updates: Any) -> None:
+    with _jobs_guard:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        job.update(updates)
+        job["updatedAt"] = _now()
+
+
+def _get_job(job_id: str) -> dict[str, Any] | None:
+    with _jobs_guard:
+        job = _jobs.get(job_id)
+        if job is None:
+            return None
+        return dict(job)
+
+
+def _public_job(job_id: str) -> dict[str, Any]:
+    job = _get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown transcription job")
+    return {
+        "jobId": job["jobId"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "message": job["message"],
+        "fileName": job["fileName"],
+        "currentChunk": job.get("currentChunk"),
+        "totalChunks": job.get("totalChunks"),
+        "createdAt": job["createdAt"],
+        "startedAt": job.get("startedAt"),
+        "finishedAt": job.get("finishedAt"),
+        "errorMessage": job.get("errorMessage"),
+        "result": job.get("result"),
+    }
+
+
+def _create_job(filename: str) -> str:
+    job_id = uuid4().hex
+    with _jobs_guard:
+        finished = [
+            (existing_id, item.get("finishedAt", 0.0))
+            for existing_id, item in _jobs.items()
+            if item.get("status") in {"done", "error"} and item.get("finishedAt")
+        ]
+        if len(finished) > 24:
+            finished.sort(key=lambda item: item[1])
+            for existing_id, _ in finished[:-24]:
+                _jobs.pop(existing_id, None)
+
+        _jobs[job_id] = {
+            "jobId": job_id,
+            "fileName": filename,
+            "status": "queued",
+            "progress": 2,
+            "message": "Queued locally, waiting for the transcription worker.",
+            "createdAt": _now(),
+            "updatedAt": _now(),
+            "startedAt": None,
+            "finishedAt": None,
+            "currentChunk": None,
+            "totalChunks": None,
+            "errorMessage": None,
+            "result": None,
+        }
+    return job_id
 
 
 def _env(name: str, default: str) -> str:
@@ -216,6 +294,50 @@ def _chunk_seconds() -> float:
         return max(60.0, float(_env("QWEN3_CHUNK_SECONDS", "600")))
     except ValueError:
         return 600.0
+
+
+def _default_progress_ratio() -> float:
+    try:
+        return min(1.5, max(0.05, float(_env("QWEN3_PROGRESS_RATIO", "0.18"))))
+    except ValueError:
+        return 0.18
+
+
+def _estimate_chunk_seconds(chunk_duration: float, observed_ratio: float | None) -> float:
+    ratio = observed_ratio if observed_ratio and observed_ratio > 0 else _default_progress_ratio()
+    return max(8.0, chunk_duration * ratio)
+
+
+def _start_progress_pacer(
+    job_id: str,
+    message: str,
+    progress_start: float,
+    progress_end: float,
+    estimated_seconds: float,
+    current_chunk: int | None,
+    total_chunks: int | None,
+) -> tuple[threading.Event, threading.Thread]:
+    stop_event = threading.Event()
+
+    def run() -> None:
+        started = time.perf_counter()
+        span = max(0.0, progress_end - progress_start)
+        while not stop_event.wait(1.0):
+            elapsed = time.perf_counter() - started
+            ratio = min(0.94, elapsed / max(estimated_seconds, 1.0))
+            progress = progress_start + span * ratio
+            _set_job(
+                job_id,
+                status="transcribing",
+                progress=int(round(progress)),
+                message=message,
+                currentChunk=current_chunk,
+                totalChunks=total_chunks,
+            )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return stop_event, thread
 
 
 def _split_audio(media_path: Path, workdir: Path, duration: float) -> list[tuple[Path, float, float]]:
@@ -415,11 +537,45 @@ def _parse_result(raw_result: Any, duration: float) -> tuple[str, list[dict[str,
     return full_text, segments, warnings
 
 
-def _transcribe_one_sync(media_path: Path, duration: float) -> dict[str, Any]:
+def _transcribe_one_sync(
+    media_path: Path,
+    duration: float,
+    job_id: str | None = None,
+    current_chunk: int | None = None,
+    total_chunks: int | None = None,
+    progress_start: float = 20.0,
+    progress_end: float = 92.0,
+    observed_ratio: float | None = None,
+) -> tuple[dict[str, Any], float]:
     language = os.getenv("QWEN3_LANGUAGE") or None
     warnings: list[str] = []
+    started = time.perf_counter()
+    stop_event: threading.Event | None = None
+    pacer_thread: threading.Thread | None = None
+    message = "Running local ASR transcription."
+    if current_chunk is not None and total_chunks is not None and total_chunks > 1:
+        message = f"Transcribing chunk {current_chunk}/{total_chunks}."
 
     try:
+        if job_id is not None:
+            _set_job(
+                job_id,
+                status="transcribing",
+                progress=int(round(progress_start)),
+                message=message,
+                currentChunk=current_chunk,
+                totalChunks=total_chunks,
+            )
+            stop_event, pacer_thread = _start_progress_pacer(
+                job_id,
+                message,
+                progress_start,
+                progress_end,
+                _estimate_chunk_seconds(duration, observed_ratio),
+                current_chunk,
+                total_chunks,
+            )
+
         model = _load_model()
         raw_result = model.transcribe(
             audio=str(media_path),
@@ -430,17 +586,41 @@ def _transcribe_one_sync(media_path: Path, duration: float) -> dict[str, Any]:
         if not _is_oom(exc):
             raise
         warnings.append("Primary model ran out of GPU memory; retried with Qwen3-ASR-0.6B.")
+        if job_id is not None:
+            _set_job(
+                job_id,
+                status="transcribing",
+                progress=int(round(progress_start)),
+                message="Primary model hit GPU memory limits, retrying with the fallback model.",
+                currentChunk=current_chunk,
+                totalChunks=total_chunks,
+            )
         model = _load_model(force_fallback=True)
         raw_result = model.transcribe(
             audio=str(media_path),
             language=language,
             return_time_stamps=True,
         )
+    finally:
+        if stop_event is not None:
+            stop_event.set()
+        if pacer_thread is not None:
+            pacer_thread.join(timeout=0.2)
 
     full_text, segments, parse_warnings = _parse_result(raw_result, duration)
     warnings.extend(parse_warnings)
     if not segments:
         raise HTTPException(status_code=422, detail="No speech text was recognized from this file")
+    elapsed = time.perf_counter() - started
+    if job_id is not None:
+        _set_job(
+            job_id,
+            status="transcribing",
+            progress=int(round(progress_end)),
+            message="Chunk finished, preparing subtitle segments." if total_chunks and total_chunks > 1 else "Preparing subtitle segments.",
+            currentChunk=current_chunk,
+            totalChunks=total_chunks,
+        )
 
     return {
         "provider": PROVIDER,
@@ -450,14 +630,28 @@ def _transcribe_one_sync(media_path: Path, duration: float) -> dict[str, Any]:
         "fullText": full_text,
         "durationSeconds": round(duration, 2),
         "warnings": warnings,
-    }
+    }, elapsed
 
 
-def _transcribe_sync(media_path: Path, duration: float, workdir: Path) -> dict[str, Any]:
+def _transcribe_sync(media_path: Path, duration: float, workdir: Path, job_id: str | None = None) -> dict[str, Any]:
+    if job_id is not None:
+        _set_job(job_id, status="transcribing", progress=14, message="Inspecting media and preparing chunks.")
     chunks = _split_audio(media_path, workdir, duration)
+    total_chunks = len(chunks)
     if len(chunks) == 1:
         try:
-            return _transcribe_one_sync(chunks[0][0], chunks[0][2] or duration)
+            result, _ = _transcribe_one_sync(
+                chunks[0][0],
+                chunks[0][2] or duration,
+                job_id=job_id,
+                current_chunk=1,
+                total_chunks=1,
+                progress_start=20,
+                progress_end=94,
+            )
+            if job_id is not None:
+                _set_job(job_id, status="transcribing", progress=97, message="Finalizing subtitle segments.")
+            return result
         finally:
             _empty_cuda_cache()
 
@@ -466,12 +660,38 @@ def _transcribe_sync(media_path: Path, duration: float, workdir: Path) -> dict[s
     warnings = [f"Long media split into {len(chunks)} chunks of about {int(_chunk_seconds())} seconds."]
     used_model = _model_name or _env("QWEN3_ASR_MODEL", DEFAULT_MODEL)
     used_aligner = _aligner_name or _env("QWEN3_ALIGNER_MODEL", DEFAULT_ALIGNER)
+    observed_ratio: float | None = None
+
+    if job_id is not None:
+        _set_job(
+            job_id,
+            status="transcribing",
+            progress=18,
+            message=f"Split long media into {total_chunks} chunks.",
+            currentChunk=0,
+            totalChunks=total_chunks,
+        )
 
     for chunk_index, (chunk_path, offset, chunk_duration) in enumerate(chunks, start=1):
+        progress_start = 20 + ((chunk_index - 1) / total_chunks) * 70
+        progress_end = 20 + (chunk_index / total_chunks) * 70
         try:
-            chunk_result = _transcribe_one_sync(chunk_path, chunk_duration)
+            chunk_result, elapsed = _transcribe_one_sync(
+                chunk_path,
+                chunk_duration,
+                job_id=job_id,
+                current_chunk=chunk_index,
+                total_chunks=total_chunks,
+                progress_start=progress_start,
+                progress_end=progress_end,
+                observed_ratio=observed_ratio,
+            )
         finally:
             _empty_cuda_cache()
+
+        if chunk_duration > 0 and elapsed > 0:
+            latest_ratio = elapsed / chunk_duration
+            observed_ratio = latest_ratio if observed_ratio is None else (observed_ratio * 0.6 + latest_ratio * 0.4)
 
         used_model = chunk_result["model"]
         used_aligner = chunk_result["aligner"]
@@ -489,6 +709,16 @@ def _transcribe_sync(media_path: Path, duration: float, workdir: Path) -> dict[s
     if not all_segments:
         raise HTTPException(status_code=422, detail="No speech text was recognized from this file")
 
+    if job_id is not None:
+        _set_job(
+            job_id,
+            status="transcribing",
+            progress=97,
+            message="Merging chunk subtitles into the final timeline.",
+            currentChunk=total_chunks,
+            totalChunks=total_chunks,
+        )
+
     return {
         "provider": PROVIDER,
         "model": used_model,
@@ -498,6 +728,61 @@ def _transcribe_sync(media_path: Path, duration: float, workdir: Path) -> dict[s
         "durationSeconds": round(duration, 2),
         "warnings": warnings,
     }
+
+
+async def _run_transcription_job(job_id: str, input_path: Path, workdir: Path) -> None:
+    try:
+        async with _lock:
+            _set_job(
+                job_id,
+                status="transcribing",
+                progress=6,
+                message="Preparing media for local transcription.",
+                startedAt=_now(),
+            )
+
+            if input_path.suffix.lower() in VIDEO_EXTENSIONS:
+                _set_job(job_id, status="transcribing", progress=10, message="Extracting audio from the video file.")
+
+            media_path = _extract_audio_if_needed(input_path, workdir)
+            _set_job(job_id, status="transcribing", progress=12, message="Reading media duration.")
+            duration = _duration_seconds(media_path) or _duration_seconds(input_path)
+            result = await asyncio.to_thread(_transcribe_sync, media_path, duration, workdir, job_id)
+            _set_job(
+                job_id,
+                status="done",
+                progress=100,
+                message="Transcription ready for review.",
+                finishedAt=_now(),
+                currentChunk=None,
+                totalChunks=None,
+                errorMessage=None,
+                result=result,
+            )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        _set_job(
+            job_id,
+            status="error",
+            progress=0,
+            message="Transcription failed.",
+            finishedAt=_now(),
+            errorMessage=detail,
+        )
+    except Exception as exc:
+        message = str(exc)
+        if _is_oom(exc):
+            message = "Local ASR ran out of GPU memory. Close other GPU apps or use the 0.6B fallback model."
+        _set_job(
+            job_id,
+            status="error",
+            progress=0,
+            message="Transcription failed.",
+            finishedAt=_now(),
+            errorMessage=message,
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 @app.get("/health")
@@ -530,6 +815,30 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.post("/transcribe/jobs")
+async def create_transcription_job(file: UploadFile = File(...)) -> dict[str, Any]:
+    suffix = Path(file.filename or "media").suffix.lower()
+    workdir = Path(tempfile.mkdtemp(prefix="echoscribe-asr-"))
+    input_path = workdir / _safe_name(file.filename or f"media{suffix}")
+    try:
+        with input_path.open("wb") as output:
+            shutil.copyfileobj(file.file, output)
+    except Exception:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+
+    job_id = _create_job(file.filename or input_path.name)
+    task = asyncio.create_task(_run_transcription_job(job_id, input_path, workdir))
+    _job_tasks.add(task)
+    task.add_done_callback(_job_tasks.discard)
+    return _public_job(job_id)
+
+
+@app.get("/transcribe/jobs/{job_id}")
+def get_transcription_job(job_id: str) -> dict[str, Any]:
+    return _public_job(job_id)
+
+
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)) -> dict[str, Any]:
     async with _lock:
@@ -544,7 +853,7 @@ async def transcribe(file: UploadFile = File(...)) -> dict[str, Any]:
             duration = _duration_seconds(media_path) or _duration_seconds(input_path)
 
             try:
-                return await asyncio.to_thread(_transcribe_sync, media_path, duration, workdir)
+                return await asyncio.to_thread(_transcribe_sync, media_path, duration, workdir, None)
             except HTTPException:
                 raise
             except Exception as exc:

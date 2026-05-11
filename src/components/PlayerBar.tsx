@@ -119,7 +119,12 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ jobId, fileUrl, fileType }
       {isVideo ? (
         <div className="border-b border-neutral-800/60 bg-black">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2">
-            <span className="text-xs text-neutral-500">视频预览</span>
+            <div className="min-w-0">
+              <p className="text-xs text-neutral-500">视频预览</p>
+              {isVideoPreviewCollapsed && (
+                <p className="mt-0.5 text-[11px] text-neutral-600">画面已收起，字幕复核和音频同步仍会继续。</p>
+              )}
+            </div>
             <button
               onClick={() => setIsVideoPreviewCollapsed((collapsed) => !collapsed)}
               className="rounded-md px-2 py-1 text-xs text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
@@ -127,19 +132,39 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ jobId, fileUrl, fileType }
               {isVideoPreviewCollapsed ? '显示画面' : '隐藏画面'}
             </button>
           </div>
-          <div className={isVideoPreviewCollapsed ? 'hidden' : 'mx-auto max-h-[240px] max-w-5xl overflow-hidden px-4 pb-3'}>
+          <div className={isVideoPreviewCollapsed ? 'mx-auto max-w-5xl px-4' : 'mx-auto max-h-[240px] max-w-5xl overflow-hidden px-4 pb-3'}>
             <video
               ref={mediaRef}
               src={fileUrl}
               playsInline
               onClick={togglePlay}
-              className="mx-auto aspect-video max-h-[220px] w-full rounded-md bg-black object-contain"
+              className={
+                isVideoPreviewCollapsed
+                  ? 'pointer-events-none h-0 w-0 opacity-0'
+                  : 'mx-auto aspect-video max-h-[220px] w-full rounded-md bg-black object-contain'
+              }
               onTimeUpdate={onTimeUpdate}
               onLoadedMetadata={onLoadedMetadata}
               onPlay={onPlay}
               onPause={onPause}
             />
           </div>
+          {isVideoPreviewCollapsed && (
+            <div className="mx-auto max-w-5xl px-4 pb-3">
+              <div className="flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900/70 px-3 py-2">
+                <div>
+                  <p className="text-xs font-medium text-neutral-200">视频画面已隐藏</p>
+                  <p className="mt-0.5 text-[11px] text-neutral-500">当前仍按音轨播放，点击字幕和时间轴会继续同步。</p>
+                </div>
+                <button
+                  onClick={() => setIsVideoPreviewCollapsed(false)}
+                  className="rounded-md bg-neutral-800 px-2.5 py-1.5 text-[11px] text-neutral-200 transition-colors hover:bg-neutral-700"
+                >
+                  恢复画面
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <audio

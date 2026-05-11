@@ -6,10 +6,11 @@ import { ExportMenu } from './components/ExportMenu';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSubtitleStore } from './stores/useSubtitleStore';
+import { estimateMediaDuration, recreateFileFromObjectUrl } from './services/localMedia';
 import { generateMockSegments } from './mock/mockSegments';
-import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia } from './services/transcription';
+import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia, type TranscriptionProgress } from './services/transcription';
 
-const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a'];
+const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a', '.aac'];
 
 const App: React.FC = () => {
   const page = useProjectStore((s) => s.page);
@@ -59,6 +60,33 @@ const App: React.FC = () => {
     saveSegments(activeJobId, segments);
     setSavedAt(new Date());
   }, [page, activeJobId, segments, saveSegments]);
+
+  useEffect(() => {
+    const preventWindowFileDrop = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+    };
+
+    window.addEventListener('dragover', preventWindowFileDrop);
+    window.addEventListener('drop', preventWindowFileDrop);
+    return () => {
+      window.removeEventListener('dragover', preventWindowFileDrop);
+      window.removeEventListener('drop', preventWindowFileDrop);
+    };
+  }, []);
+
+  const hydrateDurationEstimate = useCallback(
+    (jobId: string, file: File, fileType: string) => {
+      void estimateMediaDuration(file, fileType)
+        .then((durationSeconds) => {
+          if (durationSeconds) {
+            updateJob(jobId, { durationSeconds });
+          }
+        })
+        .catch(() => undefined);
+    },
+    [updateJob]
+  );
 
   const getJobReviewCount = useCallback(
     (jobId: string) => {
@@ -142,30 +170,40 @@ const App: React.FC = () => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     const jobId = activeJobId;
 
-    updateJob(jobId, {
-      fileName: file.name,
-      fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
-      fileUrl: URL.createObjectURL(file),
-      mediaAvailable: true,
-      state: 'transcribing',
-      progress: 10,
-      asrProvider: LOCAL_ASR_PROVIDER,
-      asrModel: DEFAULT_ASR_MODEL,
-      asrAligner: DEFAULT_ASR_ALIGNER,
-      errorMessage: undefined,
-      warnings: [],
+      updateJob(jobId, {
+        fileName: file.name,
+        fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
+        fileUrl: URL.createObjectURL(file),
+        mediaAvailable: true,
+        state: 'pending',
+        progress: 3,
+        progressMessage: '正在上传到本地识别服务…',
+        asrProvider: LOCAL_ASR_PROVIDER,
+        asrModel: DEFAULT_ASR_MODEL,
+        asrAligner: DEFAULT_ASR_ALIGNER,
+        errorMessage: undefined,
+        warnings: [],
     });
     saveSegments(jobId, []);
+    hydrateDurationEstimate(jobId, file, file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`);
     setSegments([]);
     goLyrics(jobId);
     setPendingFile(null);
 
     try {
-      const result = await transcribeMedia(file);
+      const result = await transcribeMedia(file, (progress: TranscriptionProgress) => {
+        updateJob(jobId, {
+          state: progress.status === 'queued' ? 'pending' : 'transcribing',
+          progress: progress.progress,
+          progressMessage: progress.message,
+          errorMessage: undefined,
+        });
+      });
       saveSegments(jobId, result.segments);
       updateJob(jobId, {
         state: 'done',
         progress: 100,
+        progressMessage: '识别完成，可以开始复核。',
         asrProvider: result.provider,
         asrModel: result.model,
         asrAligner: result.aligner,
@@ -180,10 +218,11 @@ const App: React.FC = () => {
       updateJob(jobId, {
         state: 'error',
         progress: 0,
+        progressMessage: undefined,
         errorMessage: error instanceof Error ? error.message : '本地识别失败',
       });
     }
-  }, [pendingFile, activeJobId, updateJob, saveSegments, setSegments, goLyrics]);
+  }, [pendingFile, activeJobId, updateJob, saveSegments, hydrateDurationEstimate, setSegments, goLyrics]);
 
   // 确认弹窗：新建任务
   const handleNewTask = useCallback(async () => {
@@ -192,18 +231,19 @@ const App: React.FC = () => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
 
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const job = {
-      id: jobId,
-      fileName: file.name,
-      fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
+      const job = {
+        id: jobId,
+        fileName: file.name,
+        fileType: file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`,
       fileUrl: URL.createObjectURL(file),
-      mediaAvailable: true,
-      state: 'transcribing' as const,
-      progress: 10,
-      asrProvider: LOCAL_ASR_PROVIDER,
-      asrModel: DEFAULT_ASR_MODEL,
-      asrAligner: DEFAULT_ASR_ALIGNER,
-    };
+        mediaAvailable: true,
+        state: 'pending' as const,
+        progress: 0,
+        progressMessage: '等待开始。',
+        asrProvider: LOCAL_ASR_PROVIDER,
+        asrModel: DEFAULT_ASR_MODEL,
+        asrAligner: DEFAULT_ASR_ALIGNER,
+      };
 
     // 先保存当前歌词页状态
     if (activeJobId) {
@@ -212,15 +252,24 @@ const App: React.FC = () => {
 
     addJob(job);
     saveSegments(jobId, []);
+    hydrateDurationEstimate(jobId, file, file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`);
     setPendingFile(null);
     goHome();
 
     try {
-      const result = await transcribeMedia(file);
+      const result = await transcribeMedia(file, (progress: TranscriptionProgress) => {
+        updateJob(jobId, {
+          state: progress.status === 'queued' ? 'pending' : 'transcribing',
+          progress: progress.progress,
+          progressMessage: progress.message,
+          errorMessage: undefined,
+        });
+      });
       saveSegments(jobId, result.segments);
       updateJob(jobId, {
         state: 'done',
         progress: 100,
+        progressMessage: '识别完成，可以开始复核。',
         asrProvider: result.provider,
         asrModel: result.model,
         asrAligner: result.aligner,
@@ -232,10 +281,61 @@ const App: React.FC = () => {
       updateJob(jobId, {
         state: 'error',
         progress: 0,
+        progressMessage: undefined,
         errorMessage: error instanceof Error ? error.message : '本地识别失败',
       });
     }
-  }, [pendingFile, activeJobId, segments, addJob, saveSegments, goHome, updateJob]);
+  }, [pendingFile, activeJobId, segments, addJob, saveSegments, hydrateDurationEstimate, goHome, updateJob]);
+
+  const retryActiveJob = useCallback(async () => {
+    if (!activeJob || !activeJob.fileUrl || !activeJob.mediaAvailable) return;
+
+    try {
+      const file = await recreateFileFromObjectUrl(activeJob.fileUrl, activeJob.fileName, activeJob.fileType);
+      saveSegments(activeJob.id, []);
+      setSegments([]);
+      updateJob(activeJob.id, {
+        state: 'pending',
+        progress: 3,
+        progressMessage: '正在上传到本地识别服务…',
+        errorMessage: undefined,
+        warnings: [],
+      });
+      hydrateDurationEstimate(activeJob.id, file, activeJob.fileType);
+
+      const result = await transcribeMedia(file, (progress: TranscriptionProgress) => {
+        updateJob(activeJob.id, {
+          state: progress.status === 'queued' ? 'pending' : 'transcribing',
+          progress: progress.progress,
+          progressMessage: progress.message,
+          errorMessage: undefined,
+        });
+      });
+
+      saveSegments(activeJob.id, result.segments);
+      updateJob(activeJob.id, {
+        state: 'done',
+        progress: 100,
+        progressMessage: '识别完成，可以开始复核。',
+        asrProvider: result.provider,
+        asrModel: result.model,
+        asrAligner: result.aligner,
+        durationSeconds: result.durationSeconds,
+        warnings: result.warnings,
+        errorMessage: undefined,
+      });
+      if (useProjectStore.getState().activeJobId === activeJob.id) {
+        setSegments(result.segments);
+      }
+    } catch (error) {
+      updateJob(activeJob.id, {
+        state: 'error',
+        progress: 0,
+        progressMessage: undefined,
+        errorMessage: error instanceof Error ? error.message : '本地识别失败',
+      });
+    }
+  }, [activeJob, hydrateDurationEstimate, saveSegments, setSegments, updateJob]);
 
   // ===== URL demo 模式 =====
   const demoInitRef = useRef(false);
@@ -358,6 +458,36 @@ const App: React.FC = () => {
           <ExportMenu />
         </div>
       </header>
+
+      {activeJob?.state === 'error' && (
+        <div className="pointer-events-none absolute left-0 right-0 top-16 z-20 px-5">
+          <div className="pointer-events-auto mx-auto flex max-w-3xl items-center justify-between gap-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 backdrop-blur-sm">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-red-100">当前文件识别失败</p>
+              <p className="mt-0.5 text-xs text-red-200/70">
+                {activeJob.errorMessage || '可以直接重试当前文件，不需要重新导入。'}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {activeJob.mediaAvailable && activeJob.fileUrl ? (
+                <button
+                  onClick={() => void retryActiveJob()}
+                  className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-100 transition-colors hover:bg-red-500/25"
+                >
+                  重试识别
+                </button>
+              ) : (
+                <button
+                  onClick={() => mediaInputRef.current?.click()}
+                  className="rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-100 transition-colors hover:bg-red-500/25"
+                >
+                  重新选择媒体
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 歌词主体 */}
       <LyricsView />

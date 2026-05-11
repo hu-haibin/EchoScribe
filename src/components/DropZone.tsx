@@ -1,9 +1,9 @@
 import React, { useCallback, useState, useRef } from 'react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useSubtitleStore } from '../stores/useSubtitleStore';
-import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia } from '../services/transcription';
+import { DEFAULT_ASR_ALIGNER, DEFAULT_ASR_MODEL, LOCAL_ASR_PROVIDER, transcribeMedia, type TranscriptionProgress } from '../services/transcription';
 
-const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a'];
+const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a', '.aac'];
 
 export const DropZone: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -26,8 +26,9 @@ export const DropZone: React.FC = () => {
           fileType: file.type || `${ext.includes('mp') ? 'video' : 'audio'}/${ext.slice(1)}`,
           fileUrl: URL.createObjectURL(file),
           mediaAvailable: true,
-          state: 'transcribing' as const,
-          progress: 10,
+          state: 'pending' as const,
+          progress: 0,
+          progressMessage: 'Waiting to start.',
           asrProvider: LOCAL_ASR_PROVIDER,
           asrModel: DEFAULT_ASR_MODEL,
           asrAligner: DEFAULT_ASR_ALIGNER,
@@ -37,11 +38,19 @@ export const DropZone: React.FC = () => {
         saveSegments(jobId, []);
 
         try {
-          const result = await transcribeMedia(file);
+          const result = await transcribeMedia(file, (progress: TranscriptionProgress) => {
+            updateJob(jobId, {
+              state: progress.status === 'queued' ? 'pending' : 'transcribing',
+              progress: progress.progress,
+              progressMessage: progress.message,
+              errorMessage: undefined,
+            });
+          });
           saveSegments(jobId, result.segments);
           updateJob(jobId, {
             state: 'done',
             progress: 100,
+            progressMessage: 'Ready for review.',
             asrProvider: result.provider,
             asrModel: result.model,
             asrAligner: result.aligner,
@@ -118,7 +127,7 @@ export const DropZone: React.FC = () => {
         或点击此处选择文件
       </p>
       <div className="flex gap-2">
-        {['MP4', 'MOV', 'MP3', 'WAV', 'M4A'].map((fmt) => (
+        {['MP4', 'MOV', 'MP3', 'WAV', 'M4A', 'AAC'].map((fmt) => (
           <span key={fmt} className="px-2.5 py-1 text-xs rounded-md bg-neutral-700/60 text-neutral-400 font-mono">
             {fmt}
           </span>
