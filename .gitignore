@@ -18,6 +18,9 @@ local-asr/tmp
 local-asr/uploads
 local-asr/models
 *.local
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

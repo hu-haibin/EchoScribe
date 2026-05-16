@@ -161,6 +161,7 @@ interface LyricsLineProps {
     end: number;
     raw_text: string;
     edited_text: string;
+    speaker?: string;
     status: SegmentStatus;
     important: boolean;
     needsCheck: boolean;
@@ -249,7 +250,7 @@ const LyricsLine = React.memo<LyricsLineProps>(
           if (!isEditing) onStartEdit(segment.id);
         }}
       >
-        <div className="relative max-w-3xl w-full text-center">
+          <div className="relative max-w-3xl w-full text-center">
           {isEditing ? (
             // 编辑模式
             <textarea
@@ -264,27 +265,42 @@ const LyricsLine = React.memo<LyricsLineProps>(
             />
           ) : (
             // 歌词显示
-            <p
-              className={`
-                transition-all duration-500 ease-out leading-relaxed
-                ${isActive
-                  ? 'text-[1.4rem] font-semibold text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.15)]'
-                  : 'text-base font-normal text-neutral-400'
-                }
-                ${isDeleted ? 'line-through text-neutral-600' : ''}
-              `}
-            >
-              {segment.edited_text}
-              {hasEdit && isActive && (
-                <span className="ml-2 text-xs text-amber-400/50 font-normal align-super">已修改</span>
+            <div>
+              {segment.speaker && (
+                <div className="mb-2 flex items-center justify-center">
+                  <span
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide ${
+                      isActive
+                        ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200'
+                        : 'border-neutral-700 bg-neutral-900/70 text-neutral-500'
+                    }`}
+                  >
+                    {segment.speaker}
+                  </span>
+                </div>
               )}
-              {segment.important && (
-                <span className="ml-2 text-xs text-amber-400/60 font-normal align-super">重点</span>
-              )}
-              {segment.needsCheck && (
-                <span className="ml-2 text-xs text-sky-400/60 font-normal align-super">待确认</span>
-              )}
-            </p>
+              <p
+                className={`
+                  transition-all duration-500 ease-out leading-relaxed
+                  ${isActive
+                    ? 'text-[1.4rem] font-semibold text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.15)]'
+                    : 'text-base font-normal text-neutral-400'
+                  }
+                  ${isDeleted ? 'line-through text-neutral-600' : ''}
+                `}
+              >
+                {segment.edited_text}
+                {hasEdit && isActive && (
+                  <span className="ml-2 text-xs text-amber-400/50 font-normal align-super">已修改</span>
+                )}
+                {segment.important && (
+                  <span className="ml-2 text-xs text-amber-400/60 font-normal align-super">重点</span>
+                )}
+                {segment.needsCheck && (
+                  <span className="ml-2 text-xs text-sky-400/60 font-normal align-super">待确认</span>
+                )}
+              </p>
+            </div>
           )}
 
           {/* 右侧悬浮信息：时间码 + 状态 */}

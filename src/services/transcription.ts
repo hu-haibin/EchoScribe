@@ -1,8 +1,12 @@
 import type { Segment } from '../types';
 
 export const LOCAL_ASR_PROVIDER = 'local-qwen3-asr';
+export const CLOUD_ASR_PROVIDER = 'aliyun-paraformer';
 export const DEFAULT_ASR_MODEL = 'Qwen/Qwen3-ASR-1.7B';
 export const DEFAULT_ASR_ALIGNER = 'Qwen/Qwen3-ForcedAligner-0.6B';
+export const CLOUD_ASR_MODEL = 'paraformer-v2';
+
+export type AsrProvider = 'local' | 'cloud';
 
 export type TranscriptionJobStatus = 'queued' | 'transcribing' | 'done' | 'error';
 
@@ -41,6 +45,7 @@ function normalizeSegment(segment: Partial<Segment>, index: number): Segment {
     end: Number.isFinite(end) && end > start ? end : start + 2,
     raw_text: String(segment.raw_text ?? text),
     edited_text: text || String(segment.raw_text ?? ''),
+    speaker: typeof segment.speaker === 'string' && segment.speaker.trim() ? segment.speaker.trim() : undefined,
     status: segment.status === 'keep' || segment.status === 'delete' ? segment.status : 'review',
     important: Boolean(segment.important),
     needsCheck: Boolean(segment.needsCheck),
@@ -73,13 +78,13 @@ function normalizeResponse(payload: Partial<TranscriptionResponse>): Transcripti
     : [];
 
   if (segments.length === 0) {
-    throw new Error('Local ASR did not return any reviewable subtitle segments.');
+    throw new Error('识别服务没有返回可复核的字幕段落。');
   }
 
   return {
     provider: payload.provider || LOCAL_ASR_PROVIDER,
     model: payload.model || DEFAULT_ASR_MODEL,
-    aligner: payload.aligner || DEFAULT_ASR_ALIGNER,
+    aligner: payload.aligner ?? '',
     segments,
     fullText: payload.fullText || segments.map((segment) => segment.edited_text).join(''),
     durationSeconds: Number(payload.durationSeconds) || 0,
@@ -101,16 +106,22 @@ function localizeProgressMessage(payload: TranscriptionJobPayload, status: Trans
     currentChunk && totalChunks && totalChunks > 1 ? `第 ${currentChunk}/${totalChunks} 段` : undefined;
 
   if (!raw) {
-    if (status === 'queued') return '已加入本地识别队列。';
+    if (status === 'queued') return '已加入识别队列。';
     if (chunkLabel) return `${chunkLabel} 识别中…`;
-    return '正在本地识别…';
+    return '正在识别…';
   }
 
   if (raw === 'Queued locally, waiting for the transcription worker.') {
-    return '已加入本地识别队列。';
+    return '已加入识别队列。';
   }
   if (raw === 'Preparing media for local transcription.') {
     return '正在准备本地识别任务…';
+  }
+  if (raw === 'Preparing media for cloud transcription.') {
+    return '正在准备云端识别任务…';
+  }
+  if (raw === 'Calling Aliyun Paraformer API.') {
+    return '正在调用阿里云 Paraformer 识别…';
   }
   if (raw === 'Extracting audio from the video file.') {
     return '正在从视频中提取音频…';
@@ -127,6 +138,9 @@ function localizeProgressMessage(payload: TranscriptionJobPayload, status: Trans
   if (raw === 'Merging chunk subtitles into the final timeline.') {
     return '正在合并所有分段字幕…';
   }
+  if (raw === 'Running speaker diarization.') {
+    return '正在区分不同说话人…';
+  }
   if (raw === 'Transcription ready for review.') {
     return '识别完成，可以开始复核。';
   }
@@ -134,7 +148,7 @@ function localizeProgressMessage(payload: TranscriptionJobPayload, status: Trans
     return '1.7B 模型显存不足，正在切换到 0.6B 重试…';
   }
   if (raw === 'Transcription failed.') {
-    return '本地识别失败。';
+    return '识别失败。';
   }
 
   const splitMatch = raw.match(/^Split long media into (\d+) chunks\.$/);
@@ -186,30 +200,68 @@ async function parseJson(response: Response): Promise<unknown> {
   }
 }
 
-async function createJob(file: File): Promise<TranscriptionJobPayload> {
-  const body = new FormData();
-  body.append('file', file);
+function uploadFile(
+  endpoint: string,
+  file: File,
+  onUploadProgress?: (percent: number) => void,
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint);
+    xhr.timeout = 60 * 60 * 1000; // 1 hour for large files
 
-  let response: Response;
-  try {
-    response = await fetch('/api/transcribe/jobs', {
-      method: 'POST',
-      body,
+    if (onUploadProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          onUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+    }
+
+    xhr.addEventListener('load', () => {
+      let body: unknown = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+      resolve({ status: xhr.status, body });
     });
-  } catch {
-    throw new Error('本地识别服务没有启动，请先启动 local-asr。');
+    xhr.addEventListener('error', () => reject(new Error('network')));
+    xhr.addEventListener('timeout', () => reject(new Error('timeout')));
+    xhr.addEventListener('abort', () => reject(new Error('abort')));
+
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+async function createJob(
+  file: File,
+  provider: AsrProvider = 'local',
+  onUploadProgress?: (percent: number) => void,
+): Promise<TranscriptionJobPayload> {
+  const endpoint = provider === 'cloud' ? '/api/transcribe/cloud/jobs' : '/api/transcribe/jobs';
+  const serviceLabel = provider === 'cloud' ? '云端识别服务' : '本地识别服务';
+
+  let result: { status: number; body: unknown };
+  try {
+    result = await uploadFile(endpoint, file, onUploadProgress);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : '';
+    if (reason === 'timeout') {
+      throw new Error('文件上传超时，请检查网络或尝试较小的文件。');
+    }
+    throw new Error(`${serviceLabel}没有启动，请先启动 local-asr。`);
   }
 
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    if ((response.status === 502 || response.status === 504 || response.status === 500) && payload === null) {
-      throw new Error('本地识别服务没有启动，请先启动 local-asr。');
+  const payload = result.body;
+  if (result.status < 200 || result.status >= 300) {
+    if ((result.status === 502 || result.status === 504 || result.status === 500) && payload === null) {
+      throw new Error(`${serviceLabel}没有启动，请先启动 local-asr。`);
     }
-    throw new Error(getErrorMessage(payload, `本地识别失败：HTTP ${response.status}`));
+    throw new Error(getErrorMessage(payload, `${serviceLabel}失败：HTTP ${result.status}`));
   }
 
   if (!payload || typeof payload !== 'object') {
-    throw new Error('本地识别服务返回了无效结果。');
+    throw new Error(`${serviceLabel}返回了无效结果。`);
   }
 
   return payload as TranscriptionJobPayload;
@@ -239,19 +291,33 @@ function sleep(ms: number): Promise<void> {
 export async function transcribeMedia(
   file: File,
   onProgress?: (progress: TranscriptionProgress) => void,
+  provider: AsrProvider = 'local',
 ): Promise<TranscriptionResponse> {
-  const created = await createJob(file);
+  onProgress?.({ status: 'queued', progress: 0, message: '正在上传文件…' });
+
+  const created = await createJob(file, provider, (uploadPercent) => {
+    onProgress?.({
+      status: 'queued',
+      progress: Math.min(uploadPercent, 99),
+      message: uploadPercent < 100 ? `正在上传文件… ${uploadPercent}%` : '上传完成，等待识别…',
+    });
+  });
+
   const jobId = typeof created.jobId === 'string' ? created.jobId : '';
   if (!jobId) {
-    throw new Error('本地识别服务没有返回任务编号。');
+    throw new Error('识别服务没有返回任务编号。');
   }
 
-  onProgress?.(normalizeProgress(created));
+  // After upload completes, switch to backend-reported progress.
+  // Use a high-water mark within the backend phase only to avoid regression
+  // between polls, but NOT across the upload→backend boundary.
+  let backendHighWater = 0;
 
   while (true) {
     const snapshot = await fetchJob(jobId);
     const progress = normalizeProgress(snapshot);
-    onProgress?.(progress);
+    if (progress.progress > backendHighWater) backendHighWater = progress.progress;
+    onProgress?.({ ...progress, progress: Math.max(progress.progress, backendHighWater) });
 
     if (progress.status === 'done') {
       if (!snapshot.result || typeof snapshot.result !== 'object') {

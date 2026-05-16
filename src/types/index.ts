@@ -6,6 +6,7 @@ export interface Segment {
   end: number;
   raw_text: string;
   edited_text: string;
+  speaker?: string;
   status: SegmentStatus;
   important: boolean;
   needsCheck: boolean;

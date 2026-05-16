@@ -18,7 +18,7 @@ export function exportSRT(segments: Segment[]): string {
     if (seg.status === 'delete') continue;
     lines.push(String(index));
     lines.push(`${formatSRTTime(seg.start)} --> ${formatSRTTime(seg.end)}`);
-    lines.push(seg.edited_text);
+    lines.push(seg.speaker ? `${seg.speaker}: ${seg.edited_text}` : seg.edited_text);
     lines.push('');
     index++;
   }
