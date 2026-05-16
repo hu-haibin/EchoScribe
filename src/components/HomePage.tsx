@@ -2,20 +2,27 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useSubtitleStore } from '../stores/useSubtitleStore';
 import { recreateFileFromObjectUrl, estimateMediaDuration } from '../services/localMedia';
+import { saveMediaFile, removeMediaFile } from '../services/mediaDB';
 import {
+  CLOUD_ASR_MODEL,
+  CLOUD_ASR_PROVIDER,
   DEFAULT_ASR_ALIGNER,
   DEFAULT_ASR_MODEL,
   LOCAL_ASR_PROVIDER,
   transcribeMedia,
+  type AsrProvider,
   type TranscriptionProgress,
 } from '../services/transcription';
 import type { Job, Segment } from '../types';
 
-const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mp3', '.wav', '.m4a', '.aac'];
+const ACCEPTED_EXTENSIONS = ['.mp4', '.mov', '.mkv', '.mp3', '.wav', '.m4a', '.aac'];
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv']);
 
 function inferFileType(file: File): string {
+  if (file.type) return file.type;
   const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
-  return file.type || `${ext.includes('mp') && ext !== '.mp3' ? 'video' : 'audio'}/${ext.slice(1)}`;
+  const category = VIDEO_EXTENSIONS.has(ext) ? 'video' : 'audio';
+  return `${category}/${ext.slice(1)}`;
 }
 
 function formatWait(seconds: number): string {
@@ -92,6 +99,7 @@ export const HomePage: React.FC = () => {
   const updateJob = useProjectStore((state) => state.updateJob);
 
   const [isDragOver, setIsDragOver] = useState(false);
+  const [asrProvider, setAsrProvider] = useState<AsrProvider>('local');
   const [importSummary, setImportSummary] = useState<{
     added: number;
     skipped: number;
@@ -115,16 +123,17 @@ export const HomePage: React.FC = () => {
   );
 
   const runTranscription = useCallback(
-    async (jobId: string, file: File, openWhenDone: boolean) => {
+    async (jobId: string, file: File, openWhenDone: boolean, provider: AsrProvider) => {
+      const isCloud = provider === 'cloud';
       updateJob(jobId, {
         state: 'pending',
         progress: 3,
-        progressMessage: '正在上传到本地识别服务…',
+        progressMessage: isCloud ? '正在上传到云端识别服务…' : '正在上传到本地识别服务…',
         errorMessage: undefined,
         warnings: [],
-        asrProvider: LOCAL_ASR_PROVIDER,
-        asrModel: DEFAULT_ASR_MODEL,
-        asrAligner: DEFAULT_ASR_ALIGNER,
+        asrProvider: isCloud ? CLOUD_ASR_PROVIDER : LOCAL_ASR_PROVIDER,
+        asrModel: isCloud ? CLOUD_ASR_MODEL : DEFAULT_ASR_MODEL,
+        asrAligner: isCloud ? '' : DEFAULT_ASR_ALIGNER,
       });
 
       try {
@@ -135,7 +144,7 @@ export const HomePage: React.FC = () => {
             progressMessage: progress.message,
             errorMessage: undefined,
           });
-        });
+        }, provider);
 
         saveSegments(jobId, result.segments);
         updateJob(jobId, {
@@ -159,7 +168,7 @@ export const HomePage: React.FC = () => {
           state: 'error',
           progress: 0,
           progressMessage: undefined,
-          errorMessage: error instanceof Error ? error.message : '本地识别失败',
+          errorMessage: error instanceof Error ? error.message : '识别失败',
         });
       }
     },
@@ -167,10 +176,10 @@ export const HomePage: React.FC = () => {
   );
 
   const enqueueTranscription = useCallback(
-    (jobId: string, file: File, openWhenDone: boolean) => {
+    (jobId: string, file: File, openWhenDone: boolean, provider: AsrProvider) => {
       transcriptionQueueRef.current = transcriptionQueueRef.current
         .catch(() => undefined)
-        .then(() => runTranscription(jobId, file, openWhenDone));
+        .then(() => runTranscription(jobId, file, openWhenDone, provider));
     },
     [runTranscription]
   );
@@ -199,7 +208,8 @@ export const HomePage: React.FC = () => {
         if (!job.durationSeconds) {
           hydrateDurationEstimate(job.id, file, job.fileType);
         }
-        enqueueTranscription(job.id, file, false);
+        const retryProvider: AsrProvider = job.asrProvider === CLOUD_ASR_PROVIDER ? 'cloud' : 'local';
+        enqueueTranscription(job.id, file, false, retryProvider);
       } catch (error) {
         updateJob(job.id, {
           state: 'error',
@@ -212,10 +222,11 @@ export const HomePage: React.FC = () => {
   );
 
   const createJobFromFile = useCallback(
-    (file: File) => {
+    (file: File, provider: AsrProvider) => {
       const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
       if (!ACCEPTED_EXTENSIONS.includes(ext)) return null;
 
+      const isCloud = provider === 'cloud';
       const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const fileType = inferFileType(file);
       const job: Job = {
@@ -227,14 +238,15 @@ export const HomePage: React.FC = () => {
         state: 'pending',
         progress: 0,
         progressMessage: '等待开始。',
-        asrProvider: LOCAL_ASR_PROVIDER,
-        asrModel: DEFAULT_ASR_MODEL,
-        asrAligner: DEFAULT_ASR_ALIGNER,
+        asrProvider: isCloud ? CLOUD_ASR_PROVIDER : LOCAL_ASR_PROVIDER,
+        asrModel: isCloud ? CLOUD_ASR_MODEL : DEFAULT_ASR_MODEL,
+        asrAligner: isCloud ? '' : DEFAULT_ASR_ALIGNER,
       };
 
       addJob(job);
       saveSegments(jobId, []);
       hydrateDurationEstimate(jobId, file, fileType);
+      void saveMediaFile(jobId, file).catch(() => undefined);
 
       return { jobId, file };
     },
@@ -247,7 +259,7 @@ export const HomePage: React.FC = () => {
       let skipped = 0;
 
       files.forEach((file) => {
-        const result = createJobFromFile(file);
+        const result = createJobFromFile(file, asrProvider);
         if (result) {
           created.push(result);
         } else {
@@ -267,10 +279,10 @@ export const HomePage: React.FC = () => {
       });
 
       created.forEach((item) => {
-        enqueueTranscription(item.jobId, item.file, files.length === 1 && created.length === 1);
+        enqueueTranscription(item.jobId, item.file, files.length === 1 && created.length === 1, asrProvider);
       });
     },
-    [createJobFromFile, enqueueTranscription]
+    [asrProvider, createJobFromFile, enqueueTranscription]
   );
 
   const handleDrop = useCallback(
@@ -365,7 +377,7 @@ export const HomePage: React.FC = () => {
             {importSummary.skipped > 0
               ? `已跳过 ${importSummary.skipped} 个不支持的文件`
               : importSummary.added === 1
-                ? '正在本地识别，完成后会自动进入复核。'
+                ? '正在识别，完成后会自动进入复核。'
                 : '多文件会按顺序排队识别，已完成的文件可以先开始复核。'}
           </p>
         </div>
@@ -418,6 +430,39 @@ export const HomePage: React.FC = () => {
 
       <div className="flex-1 overflow-auto px-6 py-6">
         <div className="mx-auto max-w-3xl">
+          {/* ASR Provider Toggle */}
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex items-center gap-1 rounded-xl bg-neutral-800/60 p-1 border border-neutral-700/50">
+              <button
+                type="button"
+                onClick={() => setAsrProvider('local')}
+                className={`px-4 py-2 text-sm rounded-lg transition-all duration-200 ${
+                  asrProvider === 'local'
+                    ? 'bg-neutral-600 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                本地识别
+              </button>
+              <button
+                type="button"
+                onClick={() => setAsrProvider('cloud')}
+                className={`px-4 py-2 text-sm rounded-lg transition-all duration-200 ${
+                  asrProvider === 'cloud'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                云端识别
+              </button>
+            </div>
+            <span className="text-xs text-neutral-500">
+              {asrProvider === 'local'
+                ? '使用本地 Qwen3 ASR，需要 GPU'
+                : '阿里云 Paraformer-v2，约 2.5 元/小时'}
+            </span>
+          </div>
+
           {renderImportSummary()}
 
           {jobs.length > 0 && (
@@ -581,6 +626,7 @@ export const HomePage: React.FC = () => {
                           onClick={(event) => {
                             event.stopPropagation();
                             removeJob(job.id);
+                            void removeMediaFile(job.id).catch(() => undefined);
                           }}
                           className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-600 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 md:opacity-0"
                           title="删除"
@@ -626,7 +672,7 @@ export const HomePage: React.FC = () => {
             <p className={`mb-1 text-base font-medium ${isDragOver ? 'text-blue-300' : 'text-neutral-300'}`}>
               {jobs.length > 0 ? '导入更多文件' : '拖入音视频文件'}
             </p>
-            <p className="text-xs text-neutral-500">支持 MP4 / MOV / MP3 / WAV / M4A / AAC</p>
+            <p className="text-xs text-neutral-500">支持 MP4 / MOV / MKV / MP3 / WAV / M4A / AAC</p>
           </div>
         </div>
       </div>
