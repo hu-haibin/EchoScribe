@@ -1,0 +1,79 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KoubojianJi.ViewModels"
+             xmlns:models="using:KoubojianJi.Models"
+             xmlns:controls="using:KoubojianJi.Views.Controls"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="KoubojianJi.Views.WorkbenchView"
+             x:DataType="vm:WorkbenchViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Button.tb">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#8888AA"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Button.tb:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2A2A4A"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.tb:disabled /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.3"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+        <Border Grid.Row="0" Background="#16162A" Padding="16,8"
+                BorderThickness="0,0,0,1" BorderBrush="#2D2D50">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6" DockPanel.Dock="Left">
+                    <Button Content="← 返回" Command="{Binding GoBackCommand}" Classes="tb"/>
+                    <Border Width="1" Background="#2D2D50" Margin="4,4"/>
+                    <TextBlock Text="{Binding Title}" FontSize="13" Foreground="White"
+                               FontWeight="Medium" VerticalAlignment="Center" Margin="4,0"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="5" DockPanel.Dock="Right"
+                            HorizontalAlignment="Right">
+                    <Button Content="撤销" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Classes="tb"/>
+                    <Button Content="重做" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Classes="tb"/>
+                    <Border Width="1" Background="#2D2D50" Margin="4,4"/>
+                    <Button Content="−" Command="{Binding ZoomOutCommand}" Classes="tb" Width="28" Padding="0,5"/>
+                    <TextBlock Text="{Binding TimelineZoom, StringFormat={}{0:F1}x}"
+                               VerticalAlignment="Center" MinWidth="32" TextAlignment="Center"
+                               FontSize="11" Foreground="#8888AA"/>
+                    <Button Content="+" Command="{Binding ZoomInCommand}" Classes="tb" Width="28" Padding="0,5"/>
+                    <Border Width="1" Background="#2D2D50" Margin="4,4"/>
+                    <Button Content="导出视频" Command="{Binding ExportCommand}"
+                            Classes="accent" Padding="14,6" FontSize="12"
+                            IsEnabled="{Binding !IsExporting}"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1" Background="#222240" BorderBrush="#2D2D50"
+                BorderThickness="1" CornerRadius="6" Margin="16,10,16,6">
+            <ScrollViewer>
+                <ItemsControl ItemsSource="{Binding Segments}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:Segment">
+                            <controls:SegmentRow/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Margin="16,4" Spacing="4" IsVisible="{Binding IsExporting}">
+            <TextBlock Text="{Binding ExportProgress, StringFormat=导出中 {0:F0}%}"
+                       FontSize="12" Foreground="#8888AA"/>
+            <ProgressBar Value="{Binding ExportProgress}" Maximum="100" Height="3"
+                         CornerRadius="1" Foreground="#6C5CE7"/>
+        </StackPanel>
+
+        <controls:PlayerControl Grid.Row="3" DataContext="{Binding Player}"/>
+    </Grid>
+</UserControl>

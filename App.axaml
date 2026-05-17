@@ -1,0 +1,30 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="KoubojianJi.App"
+             xmlns:local="using:KoubojianJi"
+             RequestedThemeVariant="Dark">
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+
+    <Application.Styles>
+        <FluentTheme />
+
+        <Style Selector="Window">
+            <Setter Property="Background" Value="#1A1A2E"/>
+        </Style>
+
+        <Style Selector="Button.accent">
+            <Setter Property="Background" Value="#6C5CE7"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#7D6FF0"/>
+        </Style>
+        <Style Selector="Button.accent:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#5A4BD1"/>
+        </Style>
+    </Application.Styles>
+</Application>

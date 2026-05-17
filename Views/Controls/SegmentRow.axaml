@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:KoubojianJi.Models"
+             xmlns:vm="using:KoubojianJi.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="KoubojianJi.Views.Controls.SegmentRow"
+             x:DataType="models:Segment">
+
+    <UserControl.Styles>
+        <Style Selector="Border.seg-row">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="Border.seg-row:pointerover">
+            <Setter Property="Background" Value="#2A2A4A"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Classes="seg-row" Padding="14,7" BorderThickness="0,0,0,1"
+            BorderBrush="#20FFFFFF">
+        <Grid ColumnDefinitions="56,*,Auto">
+            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                       FontFamily="Consolas" FontSize="10" Foreground="#8888AA">
+                <TextBlock.Text>
+                    <Binding Path="Start" Converter="{x:Static vm:TimeConverters.SecondsToTimeString}"/>
+                </TextBlock.Text>
+            </TextBlock>
+
+            <TextBlock Grid.Column="1" Text="{Binding EditedText}"
+                       TextWrapping="Wrap" VerticalAlignment="Center"
+                       Foreground="#D0D0E8" FontSize="13" Margin="6,0"/>
+
+            <Button Grid.Column="2"
+                    Command="{Binding $parent[ItemsControl].((vm:WorkbenchViewModel)DataContext).MarkSegmentCommand}"
+                    CommandParameter="{Binding}"
+                    MinWidth="44" Padding="8,3" CornerRadius="4"
+                    Background="#2D2D50" FontSize="11"
+                    HorizontalContentAlignment="Center">
+                <TextBlock Text="{Binding Status}" Foreground="#8888AA"/>
+            </Button>
+        </Grid>
+    </Border>
+</UserControl>

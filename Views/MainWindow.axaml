@@ -1,0 +1,43 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:KoubojianJi.ViewModels"
+        xmlns:views="using:KoubojianJi.Views"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+        x:Class="KoubojianJi.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Width="1200" Height="800"
+        MinWidth="900" MinHeight="600"
+        Background="#1A1A2E">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+        <Menu DockPanel.Dock="Top" Background="#16162A" Padding="8,2">
+            <MenuItem Header="文件">
+                <MenuItem Header="打开项目..." Command="{Binding OpenProjectCommand}"/>
+                <MenuItem Header="保存项目" Command="{Binding SaveProjectCommand}"/>
+                <Separator/>
+                <MenuItem Header="退出" Click="OnExitClick"/>
+            </MenuItem>
+        </Menu>
+
+        <ContentControl Content="{Binding CurrentView}">
+            <ContentControl.DataTemplates>
+                <DataTemplate DataType="vm:HomeViewModel">
+                    <views:HomeView/>
+                </DataTemplate>
+                <DataTemplate DataType="vm:LyricsViewModel">
+                    <views:LyricsView/>
+                </DataTemplate>
+                <DataTemplate DataType="vm:WorkbenchViewModel">
+                    <views:WorkbenchView/>
+                </DataTemplate>
+            </ContentControl.DataTemplates>
+        </ContentControl>
+    </DockPanel>
+</Window>
