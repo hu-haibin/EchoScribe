@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
-import { usePlayerStore } from '../../stores/usePlayerStore';
 import { useSubtitleStore } from '../../stores/useSubtitleStore';
-import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
+import { useWorkbenchStore, type CutRange } from '../../stores/useWorkbenchStore';
+import type { Segment } from '../../types';
+import type { PlaybackController } from './usePlaybackController';
+import type { Boundary } from './useTimelineBoundaries';
+
+const NUDGE_SECONDS = 1;
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -9,81 +13,159 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
 }
 
-function seekSegmentAtOffset(offset: -1 | 1) {
-  const subtitleState = useSubtitleStore.getState();
-  const workbenchState = useWorkbenchStore.getState();
-  const playerState = usePlayerStore.getState();
-  const { segments } = subtitleState;
-  if (segments.length === 0) return;
-
-  const selectedIndex = workbenchState.selectedSegmentId
-    ? segments.findIndex((segment) => segment.id === workbenchState.selectedSegmentId)
-    : -1;
-  const activeIndex =
-    selectedIndex >= 0 ? selectedIndex : subtitleState.getActiveIndex(workbenchState.playheadDisplayTime);
-  const nextIndex = Math.max(0, Math.min(segments.length - 1, activeIndex + offset));
-  const nextSegment = segments[nextIndex];
-
-  workbenchState.setSelectedSegmentId(nextSegment.id);
-  workbenchState.setActiveSegmentId(nextSegment.id);
-  workbenchState.setPlayheadDisplayTime(nextSegment.start);
-  workbenchState.setLastActionMessage(offset < 0 ? '已跳到上一段' : '已跳到下一段');
-  playerState.seekTo(nextSegment.start);
+function segmentIsDeleted(segment: Segment, cutRanges: CutRange[], mediaId: string | null): boolean {
+  if (segment.status === 'delete') return true;
+  return cutRanges.some((range) => {
+    if (range.mediaId !== mediaId) return false;
+    if (range.segmentIds?.includes(segment.id)) return true;
+    return range.sourceStart <= segment.start && range.sourceEnd >= segment.end;
+  });
 }
 
-function markSelectedSegmentForDelete() {
-  const subtitleState = useSubtitleStore.getState();
-  const workbenchState = useWorkbenchStore.getState();
-  const selectedSegment = subtitleState.segments.find((segment) => segment.id === workbenchState.selectedSegmentId);
+function findSegmentAtTime(segments: Segment[], cutRanges: CutRange[], mediaId: string | null, time: number): Segment | null {
+  if (segments.length === 0) return null;
 
-  if (selectedSegment) {
-    workbenchState.addPendingCutRange({
-      start: selectedSegment.start,
-      end: selectedSegment.end,
-      source: 'segment',
-      segmentId: selectedSegment.id,
-      previousStatus: selectedSegment.status,
-    });
-    subtitleState.updateStatus(selectedSegment.id, 'delete');
+  let lo = 0;
+  let hi = segments.length - 1;
+  let result = -1;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (segments[mid].start <= time) {
+      result = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (result < 0) return null;
+  const segment = segments[result];
+  if (time < segment.start || time > segment.end) return null;
+  if (segmentIsDeleted(segment, cutRanges, mediaId)) return null;
+  return segment;
+}
+
+function nudge(controller: PlaybackController, direction: -1 | 1) {
+  const workbenchState = useWorkbenchStore.getState();
+  const nextTime = Math.max(
+    0,
+    Math.min(controller.getDuration() || Number.MAX_SAFE_INTEGER, controller.getCurrentTime() + direction * NUDGE_SECONDS)
+  );
+  controller.seekTo(nextTime, { forceDisplay: true });
+  workbenchState.setLastActionMessage(direction < 0 ? '向前小跳 1s' : '向后小跳 1s');
+}
+
+function seekBoundaryAtOffset(offset: -1 | 1, controller: PlaybackController, boundaries: Boundary[]) {
+  const workbenchState = useWorkbenchStore.getState();
+  const subtitleState = useSubtitleStore.getState();
+  const mediaId = workbenchState.selectedMediaId;
+  const baseTime = controller.getCurrentTime();
+  const boundary =
+    offset > 0
+      ? boundaries.find((item) => item.sourceTime > baseTime + 0.001)
+      : boundaries
+          .slice()
+          .reverse()
+          .find((item) => item.sourceTime < baseTime - 0.001);
+
+  if (!boundary) {
+    workbenchState.setLastActionMessage(offset > 0 ? '已经是最后一个分割点' : '已经是第一个分割点');
     return;
   }
 
-  const start = workbenchState.playheadDisplayTime;
-  workbenchState.addPendingCutRange({ start, end: start + 2, source: 'manual' });
-}
+  const segment = boundary.segmentId
+    ? subtitleState.segments.find((item) => item.id === boundary.segmentId) ?? null
+    : findSegmentAtTime(subtitleState.segments, workbenchState.cutRanges, mediaId, boundary.sourceTime);
 
-function undoPendingAction() {
-  const action = useWorkbenchStore.getState().undoPendingAction();
-  if (action?.type === 'cutRange' && action.item.segmentId && action.item.previousStatus) {
-    useSubtitleStore.getState().updateStatus(action.item.segmentId, action.item.previousStatus);
+  workbenchState.setSelectedRange(null);
+  workbenchState.setActiveBoundaryId(boundary.id);
+  if (boundary.segmentId) {
+    workbenchState.setSelectedSegmentId(boundary.segmentId);
+  } else {
+    workbenchState.setSelectedSegmentId(null);
   }
+  workbenchState.setActiveSegmentId(segment?.id ?? null);
+  controller.seekTo(boundary.sourceTime, { forceDisplay: true });
+  workbenchState.setLastActionMessage(offset > 0 ? '已跳到下一个分割点' : '已跳到上一个分割点');
 }
 
-function redoPendingAction() {
-  const action = useWorkbenchStore.getState().redoPendingAction();
-  if (action?.type === 'cutRange' && action.item.segmentId) {
-    useSubtitleStore.getState().updateStatus(action.item.segmentId, 'delete');
+function addCutPoint(controller: PlaybackController) {
+  const workbenchState = useWorkbenchStore.getState();
+  if (!workbenchState.selectedMediaId) {
+    workbenchState.setLastActionMessage('请先选择素材');
+    return;
   }
+  workbenchState.addCutPoint({
+    mediaId: workbenchState.selectedMediaId,
+    sourceTime: controller.getCurrentTime(),
+  });
 }
 
-export function useWorkbenchHotkeys() {
+function deleteCurrentSelection() {
+  const subtitleState = useSubtitleStore.getState();
+  const workbenchState = useWorkbenchStore.getState();
+  const mediaId = workbenchState.selectedMediaId;
+  if (!mediaId) {
+    workbenchState.setLastActionMessage('请先选择素材');
+    return;
+  }
+
+  if (workbenchState.selectedRange && workbenchState.selectedRange.sourceEnd - workbenchState.selectedRange.sourceStart > 0.03) {
+    workbenchState.addCutRange({
+      mediaId,
+      sourceStart: workbenchState.selectedRange.sourceStart,
+      sourceEnd: workbenchState.selectedRange.sourceEnd,
+      reason: 'manual-delete',
+    });
+    return;
+  }
+
+  const segmentId = workbenchState.selectedSegmentId ?? workbenchState.activeSegmentId;
+  const segment = segmentId ? subtitleState.segments.find((item) => item.id === segmentId) : null;
+  if (!segment) {
+    workbenchState.setLastActionMessage('没有选中的段落或区间');
+    return;
+  }
+
+  workbenchState.addCutRange({
+    mediaId,
+    sourceStart: segment.start,
+    sourceEnd: segment.end,
+    reason: 'segment-delete',
+    segmentIds: [segment.id],
+  });
+}
+
+export function useWorkbenchHotkeys(controller: PlaybackController, boundaries: Boundary[]) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
 
       const key = event.key.toLowerCase();
       const workbenchState = useWorkbenchStore.getState();
-      const playerState = usePlayerStore.getState();
 
       if ((event.ctrlKey || event.metaKey) && key === 'z' && !event.shiftKey) {
         event.preventDefault();
-        undoPendingAction();
+        workbenchState.undo();
         return;
       }
 
       if ((event.ctrlKey || event.metaKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
         event.preventDefault();
-        redoPendingAction();
+        workbenchState.redo();
+        return;
+      }
+
+      if (event.shiftKey && event.key === 'ArrowLeft') {
+        event.preventDefault();
+        nudge(controller, -1);
+        return;
+      }
+
+      if (event.shiftKey && event.key === 'ArrowRight') {
+        event.preventDefault();
+        nudge(controller, 1);
         return;
       }
 
@@ -91,39 +173,38 @@ export function useWorkbenchHotkeys() {
 
       if (event.code === 'Space') {
         event.preventDefault();
-        playerState.togglePlay();
+        controller.togglePlay();
         workbenchState.setLastActionMessage('播放 / 暂停');
         return;
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        seekSegmentAtOffset(-1);
+        seekBoundaryAtOffset(-1, controller, boundaries);
         return;
       }
 
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        seekSegmentAtOffset(1);
+        seekBoundaryAtOffset(1, controller, boundaries);
         return;
       }
 
       if (key === 's') {
         event.preventDefault();
-        workbenchState.addPendingCutPoint(workbenchState.playheadDisplayTime);
+        addCutPoint(controller);
         return;
       }
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
-        markSelectedSegmentForDelete();
+        deleteCurrentSelection();
         return;
       }
 
       if (key === 'k') {
         event.preventDefault();
-        playerState.mediaElement?.pause();
-        playerState.setPlaying(false);
+        controller.pause();
         workbenchState.setLastActionMessage('暂停');
         return;
       }
@@ -139,16 +220,14 @@ export function useWorkbenchHotkeys() {
         const subtitleState = useSubtitleStore.getState();
         const selectedSegment = subtitleState.segments.find((segment) => segment.id === workbenchState.selectedSegmentId);
         if (selectedSegment) {
-          playerState.seekTo(selectedSegment.start);
-          workbenchState.setPlayheadDisplayTime(selectedSegment.start);
+          controller.seekTo(selectedSegment.start, { forceDisplay: true });
         }
-        playerState.mediaElement?.play();
-        playerState.setPlaying(true);
+        controller.play();
         workbenchState.setLastActionMessage('从当前段落播放');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [boundaries, controller]);
 }

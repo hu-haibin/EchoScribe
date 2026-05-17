@@ -1,22 +1,35 @@
 import { memo } from 'react';
+import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
 import type { Job, Segment } from '../../types';
+import { BoundaryCanvasTrack } from './BoundaryCanvasTrack';
 import { CutRangeTrack } from './CutRangeTrack';
-import { SegmentMarkerTrack } from './SegmentMarkerTrack';
 import { WaveformTrack } from './WaveformTrack';
+import type { Boundary } from './useTimelineBoundaries';
 
 interface TimelineTracksProps {
   activeJob: Job;
   segments: Segment[];
+  boundaries: Boundary[];
   duration: number;
   trackWidth: number;
+  scrollLeft: number;
+  containerWidth: number;
+  pxPerSecond: number;
 }
 
 export const TimelineTracks = memo(function TimelineTracks({
   activeJob,
   segments,
+  boundaries,
   duration,
   trackWidth,
+  scrollLeft,
+  containerWidth,
+  pxPerSecond,
 }: TimelineTracksProps) {
+  const activeBoundaryId = useWorkbenchStore((state) => state.activeBoundaryId);
+  const selectedSegmentId = useWorkbenchStore((state) => state.selectedSegmentId);
+
   return (
     <div className="relative" style={{ width: trackWidth }}>
       <div className="relative h-10 border-b border-neutral-800 bg-neutral-900/70">
@@ -29,7 +42,16 @@ export const TimelineTracks = memo(function TimelineTracks({
       </div>
 
       <WaveformTrack trackWidth={trackWidth} />
-      <SegmentMarkerTrack segments={segments} duration={duration} />
+      <BoundaryCanvasTrack
+        boundaries={boundaries}
+        duration={duration}
+        trackWidth={trackWidth}
+        scrollLeft={scrollLeft}
+        containerWidth={containerWidth}
+        pxPerSecond={pxPerSecond}
+        activeBoundaryId={activeBoundaryId}
+        selectedSegmentId={selectedSegmentId}
+      />
       <CutRangeTrack segments={segments} duration={duration} />
     </div>
   );

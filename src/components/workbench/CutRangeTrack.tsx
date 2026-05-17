@@ -16,10 +16,18 @@ function rangeStyle(start: number, end: number, duration: number) {
 }
 
 export const CutRangeTrack = memo(function CutRangeTrack({ segments, duration }: CutRangeTrackProps) {
-  const pendingCutRanges = useWorkbenchStore((state) => state.pendingCutRanges);
-  const pendingCutPoints = useWorkbenchStore((state) => state.pendingCutPoints);
+  const selectedMediaId = useWorkbenchStore((state) => state.selectedMediaId);
+  const selectedCutRangeId = useWorkbenchStore((state) => state.selectedCutRangeId);
+  const selectedRange = useWorkbenchStore((state) => state.selectedRange);
+  const cutRanges = useWorkbenchStore((state) => state.cutRanges);
+  const setSelectedCutRangeId = useWorkbenchStore((state) => state.setSelectedCutRangeId);
+  const setSelectedRange = useWorkbenchStore((state) => state.setSelectedRange);
 
-  const deletedSegments = useMemo(
+  const mediaCutRanges = useMemo(
+    () => cutRanges.filter((range) => range.mediaId === selectedMediaId),
+    [cutRanges, selectedMediaId]
+  );
+  const legacyDeletedSegments = useMemo(
     () => segments.filter((segment) => segment.status === 'delete').slice(0, 240),
     [segments]
   );
@@ -27,27 +35,36 @@ export const CutRangeTrack = memo(function CutRangeTrack({ segments, duration }:
   return (
     <div className="relative h-12 bg-neutral-950">
       <div className="absolute left-3 top-2 text-[11px] font-medium text-red-200/70">删除</div>
-      {deletedSegments.map((segment) => (
+      {legacyDeletedSegments.map((segment) => (
         <div
           key={segment.id}
-          className="absolute bottom-2 top-2 rounded-sm bg-red-500/25"
+          className="absolute bottom-2 top-2 rounded-sm bg-red-500/20"
           style={rangeStyle(segment.start, segment.end, duration)}
         />
       ))}
-      {pendingCutRanges.map((range) => (
+      {selectedRange && selectedRange.sourceEnd - selectedRange.sourceStart > 0.03 && (
         <div
-          key={range.id}
-          className="absolute bottom-2 top-2 rounded-sm border border-red-400/60 bg-red-500/25"
-          style={rangeStyle(range.start, range.end, duration)}
-          title={`${range.start.toFixed(2)}s - ${range.end.toFixed(2)}s`}
+          className="absolute bottom-2 top-2 rounded-sm border border-amber-300/70 bg-amber-300/15"
+          style={rangeStyle(selectedRange.sourceStart, selectedRange.sourceEnd, duration)}
         />
-      ))}
-      {pendingCutPoints.map((cut) => (
-        <div
-          key={cut.id}
-          className="absolute bottom-1 top-1 w-px bg-amber-300 shadow-[0_0_6px_rgba(251,191,36,0.75)]"
-          style={{ left: `${(cut.time / Math.max(1, duration)) * 100}%` }}
-          title={`切点 ${cut.time.toFixed(2)}s`}
+      )}
+      {mediaCutRanges.map((range) => (
+        <button
+          key={range.id}
+          type="button"
+          data-timeline-interactive="true"
+          className={`absolute bottom-2 top-2 rounded-sm border ${
+            range.id === selectedCutRangeId
+              ? 'border-red-200 bg-red-500/35'
+              : 'border-red-400/60 bg-red-500/25 hover:bg-red-500/35'
+          }`}
+          style={rangeStyle(range.sourceStart, range.sourceEnd, duration)}
+          title={`${range.sourceStart.toFixed(2)}s - ${range.sourceEnd.toFixed(2)}s`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSelectedRange(null);
+            setSelectedCutRangeId(range.id);
+          }}
         />
       ))}
     </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaImportWorkflow } from '../../hooks/useMediaImportWorkflow';
 import { loadMediaFile } from '../../services/mediaDB';
 import type { AsrProvider } from '../../services/transcription';
+import { usePlayerStore } from '../../stores/usePlayerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSubtitleStore } from '../../stores/useSubtitleStore';
 import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
@@ -12,6 +13,8 @@ import { PlayerPanel } from './PlayerPanel';
 import { RoughCutTimeline } from './RoughCutTimeline';
 import { TopBar } from './TopBar';
 import { TranscriptPanel } from './TranscriptPanel';
+import { usePlaybackController } from './usePlaybackController';
+import { useTimelineBoundaries } from './useTimelineBoundaries';
 import { useWorkbenchHotkeys } from './useWorkbenchHotkeys';
 
 export function RoughCutWorkbench() {
@@ -20,39 +23,38 @@ export function RoughCutWorkbench() {
   const setActiveJob = useProjectStore((state) => state.setActiveJob);
   const saveSegments = useProjectStore((state) => state.saveSegments);
   const updateJobMedia = useProjectStore((state) => state.updateJobMedia);
+  const playerDuration = usePlayerStore((state) => state.duration);
   const segments = useSubtitleStore((state) => state.segments);
   const setSegments = useSubtitleStore((state) => state.setSegments);
-  const updateStatus = useSubtitleStore((state) => state.updateStatus);
   const setSelectedMediaId = useWorkbenchStore((state) => state.setSelectedMediaId);
   const setSelectedSegmentId = useWorkbenchStore((state) => state.setSelectedSegmentId);
   const setLastActionMessage = useWorkbenchStore((state) => state.setLastActionMessage);
   const clearMediaSelectionState = useWorkbenchStore((state) => state.clearMediaSelectionState);
   const lastActionMessage = useWorkbenchStore((state) => state.lastActionMessage);
+  const undo = useWorkbenchStore((state) => state.undo);
+  const redo = useWorkbenchStore((state) => state.redo);
 
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [isGlobalDragOver, setIsGlobalDragOver] = useState(false);
   const loadedSegmentsRef = useRef<Segment[] | null>(null);
+  const loadedSegmentsJobIdRef = useRef<string | null>(null);
+  const skipNextSegmentsSaveRef = useRef(false);
   const mediaRestoredRef = useRef(false);
   const asrProvider: AsrProvider = 'local';
 
   const { importFiles } = useMediaImportWorkflow(asrProvider);
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0];
+  const playbackController = usePlaybackController({
+    mediaId: activeJob?.id ?? null,
+    segments,
+    duration: activeJob?.durationSeconds || playerDuration || 0,
+  });
+  const boundaries = useTimelineBoundaries({
+    mediaId: activeJob?.id ?? null,
+    segments,
+  });
 
-  useWorkbenchHotkeys();
-
-  const handleUndo = useCallback(() => {
-    const action = useWorkbenchStore.getState().undoPendingAction();
-    if (action?.type === 'cutRange' && action.item.segmentId && action.item.previousStatus) {
-      updateStatus(action.item.segmentId, action.item.previousStatus);
-    }
-  }, [updateStatus]);
-
-  const handleRedo = useCallback(() => {
-    const action = useWorkbenchStore.getState().redoPendingAction();
-    if (action?.type === 'cutRange' && action.item.segmentId) {
-      updateStatus(action.item.segmentId, 'delete');
-    }
-  }, [updateStatus]);
+  useWorkbenchHotkeys(playbackController, boundaries);
 
   useEffect(() => {
     if (mediaRestoredRef.current) return;
@@ -80,22 +82,40 @@ export function RoughCutWorkbench() {
     clearMediaSelectionState();
     if (!activeJob?.id) {
       setSelectedMediaId(null);
-      setSegments([]);
+      loadedSegmentsJobIdRef.current = null;
       loadedSegmentsRef.current = [];
+      skipNextSegmentsSaveRef.current = true;
+      setSegments([]);
       return;
     }
 
     setSelectedMediaId(activeJob.id);
     const storedSegments = useProjectStore.getState().segmentsMap[activeJob.id] ?? [];
-    setSegments(storedSegments);
+    loadedSegmentsJobIdRef.current = activeJob.id;
     loadedSegmentsRef.current = storedSegments;
+    skipNextSegmentsSaveRef.current = true;
+    setSegments(storedSegments);
     setSelectedSegmentId(null);
-  }, [activeJob?.id, clearMediaSelectionState, setSegments, setSelectedMediaId, setSelectedSegmentId]);
+    playbackController.seekTo(0, { forceDisplay: true });
+  }, [
+    activeJob?.id,
+    clearMediaSelectionState,
+    playbackController,
+    setSegments,
+    setSelectedMediaId,
+    setSelectedSegmentId,
+  ]);
 
   useEffect(() => {
     if (!activeJob?.id) return;
+    if (loadedSegmentsJobIdRef.current !== activeJob.id) return;
+    if (skipNextSegmentsSaveRef.current) {
+      skipNextSegmentsSaveRef.current = false;
+      return;
+    }
     if (segments === loadedSegmentsRef.current) return;
     saveSegments(activeJob.id, segments);
+    loadedSegmentsRef.current = segments;
     setSavedAt(new Date());
   }, [activeJob?.id, saveSegments, segments]);
 
@@ -103,8 +123,10 @@ export function RoughCutWorkbench() {
     (jobId: string) => {
       setActiveJob(jobId);
       const storedSegments = useProjectStore.getState().segmentsMap[jobId] ?? [];
-      setSegments(storedSegments);
+      loadedSegmentsJobIdRef.current = jobId;
       loadedSegmentsRef.current = storedSegments;
+      skipNextSegmentsSaveRef.current = true;
+      setSegments(storedSegments);
       clearMediaSelectionState();
       setSelectedMediaId(jobId);
       setSelectedSegmentId(null);
@@ -141,17 +163,23 @@ export function RoughCutWorkbench() {
         handleImportFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      <TopBar activeJob={activeJob} savedAt={savedAt} lastActionMessage={lastActionMessage} onUndo={handleUndo} onRedo={handleRedo} />
+      <TopBar activeJob={activeJob} savedAt={savedAt} lastActionMessage={lastActionMessage} onUndo={undo} onRedo={redo} />
 
       <div className="flex min-h-0 flex-1">
         <MediaSidebar jobs={jobs} activeJobId={activeJob?.id ?? null} onSelectJob={handleSelectJob} onImportFiles={handleImportFiles} />
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <PlayerPanel activeJob={activeJob} segments={segments} />
-          <RoughCutTimeline activeJob={activeJob} segments={segments} onImportFiles={handleImportFiles} />
+          <PlayerPanel activeJob={activeJob} segments={segments} controller={playbackController} />
+          <RoughCutTimeline
+            activeJob={activeJob}
+            segments={segments}
+            boundaries={boundaries}
+            controller={playbackController}
+            onImportFiles={handleImportFiles}
+          />
         </main>
 
-        <TranscriptPanel segments={segments} />
+        <TranscriptPanel segments={segments} controller={playbackController} />
       </div>
 
       <BottomStatusBar lastActionMessage={lastActionMessage} />

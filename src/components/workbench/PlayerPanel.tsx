@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useMemo, type SyntheticEvent } from 'react';
 import { usePlayerStore } from '../../stores/usePlayerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
-import { useSubtitleStore } from '../../stores/useSubtitleStore';
-import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
+import { useWorkbenchStore, type CutRange } from '../../stores/useWorkbenchStore';
 import type { Job, PlaybackRate, Segment } from '../../types';
 import { PLAYBACK_RATES } from '../../types';
+import type { PlaybackController } from './usePlaybackController';
 
 interface PlayerPanelProps {
   activeJob: Job | undefined;
   segments: Segment[];
+  controller: PlaybackController;
 }
 
 function formatTime(seconds: number): string {
@@ -22,85 +23,80 @@ function formatTime(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-export function PlayerPanel({ activeJob, segments }: PlayerPanelProps) {
-  const mediaRef = useRef<HTMLMediaElement | null>(null);
-  const lastDisplayCommitRef = useRef(0);
+function segmentIsDeleted(segment: Segment, ranges: CutRange[], mediaId: string | null): boolean {
+  if (segment.status === 'delete') return true;
+  return ranges.some((range) => {
+    if (range.mediaId !== mediaId) return false;
+    if (range.segmentIds?.includes(segment.id)) return true;
+    return range.sourceStart <= segment.start && range.sourceEnd >= segment.end;
+  });
+}
 
+export function PlayerPanel({ activeJob, segments, controller }: PlayerPanelProps) {
   const duration = usePlayerStore((state) => state.duration);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const volume = usePlayerStore((state) => state.volume);
   const playbackRate = usePlayerStore((state) => state.playbackRate);
-  const setDuration = usePlayerStore((state) => state.setDuration);
-  const setPlaying = usePlayerStore((state) => state.setPlaying);
   const setMediaElement = usePlayerStore((state) => state.setMediaElement);
-  const togglePlay = usePlayerStore((state) => state.togglePlay);
   const setVolume = usePlayerStore((state) => state.setVolume);
   const setPlaybackRate = usePlayerStore((state) => state.setPlaybackRate);
   const savePlaybackPosition = useProjectStore((state) => state.savePlaybackPosition);
   const getPlaybackPosition = useProjectStore((state) => state.getPlaybackPosition);
-  const getActiveIndex = useSubtitleStore((state) => state.getActiveIndex);
   const playheadDisplayTime = useWorkbenchStore((state) => state.playheadDisplayTime);
-  const setPlayheadDisplayTime = useWorkbenchStore((state) => state.setPlayheadDisplayTime);
-  const pendingCutRanges = useWorkbenchStore((state) => state.pendingCutRanges);
+  const activeSegmentId = useWorkbenchStore((state) => state.activeSegmentId);
+  const cutRanges = useWorkbenchStore((state) => state.cutRanges);
   const setLastActionMessage = useWorkbenchStore((state) => state.setLastActionMessage);
 
   const isVideo = Boolean(activeJob?.fileType.startsWith('video'));
   const hasPlayableMedia = Boolean(activeJob?.mediaAvailable && activeJob.fileUrl);
   const progress = duration > 0 ? Math.min(100, (playheadDisplayTime / duration) * 100) : 0;
 
-  const pendingDeletedSegmentIds = useMemo(() => {
-    const ids = new Set<string>();
-    pendingCutRanges.forEach((range) => {
-      if (range.segmentId) ids.add(range.segmentId);
-    });
-    return ids;
-  }, [pendingCutRanges]);
-
   const activeSubtitle = useMemo(() => {
-    const activeIndex = getActiveIndex(playheadDisplayTime);
-    if (activeIndex < 0 || activeIndex >= segments.length) return '';
-    const segment = segments[activeIndex];
-    if (playheadDisplayTime < segment.start || playheadDisplayTime > segment.end) return '';
-    if (segment.status === 'delete' || pendingDeletedSegmentIds.has(segment.id)) return '';
-    return segment.edited_text;
-  }, [getActiveIndex, pendingDeletedSegmentIds, playheadDisplayTime, segments]);
+    if (!activeSegmentId) return '';
+    const segment = segments.find((item) => item.id === activeSegmentId);
+    if (!segment || segmentIsDeleted(segment, cutRanges, activeJob?.id ?? null)) return '';
+    return segment.edited_text || segment.raw_text;
+  }, [activeJob?.id, activeSegmentId, cutRanges, segments]);
 
-  const commitDisplayTime = useCallback(
-    (time: number, force = false) => {
-      const now = performance.now();
-      if (!force && now - lastDisplayCommitRef.current < 250) return;
-      lastDisplayCommitRef.current = now;
-      setPlayheadDisplayTime(time);
+  const bindMediaRef = useCallback(
+    (node: HTMLMediaElement | null) => {
+      controller.mediaRef.current = node;
+      setMediaElement(node);
     },
-    [setPlayheadDisplayTime]
+    [controller.mediaRef, setMediaElement]
   );
 
-  const seekToLocal = useCallback(
-    (time: number) => {
-      const el = mediaRef.current;
-      const nextTime = Math.max(0, Math.min(time, duration || Number.MAX_SAFE_INTEGER));
-      if (el) {
-        el.currentTime = nextTime;
+  const handleLoadedMetadata = useCallback(
+    (event: SyntheticEvent<HTMLMediaElement>) => {
+      if (!activeJob) return;
+      const nextDuration = event.currentTarget.duration;
+      controller.setKnownDuration(nextDuration);
+      const savedPosition = getPlaybackPosition(activeJob.id);
+      if (savedPosition > 0 && savedPosition < nextDuration) {
+        controller.seekTo(savedPosition, { forceDisplay: true });
+      } else {
+        controller.seekTo(0, { forceDisplay: true });
       }
-      commitDisplayTime(nextTime, true);
     },
-    [commitDisplayTime, duration]
+    [activeJob, controller, getPlaybackPosition]
   );
 
-  useEffect(() => {
-    const el = mediaRef.current;
-    if (!el) {
-      setMediaElement(null);
-      return;
-    }
-    setMediaElement(el);
-    return () => setMediaElement(null);
-  }, [activeJob?.id, setMediaElement]);
+  const handlePause = useCallback(
+    (event: SyntheticEvent<HTMLMediaElement>) => {
+      controller.handleMediaPause();
+      if (activeJob) {
+        savePlaybackPosition(activeJob.id, event.currentTarget.currentTime);
+      }
+    },
+    [activeJob, controller, savePlaybackPosition]
+  );
 
-  useEffect(() => {
-    commitDisplayTime(0, true);
-    setDuration(activeJob?.durationSeconds || 0);
-  }, [activeJob?.durationSeconds, activeJob?.id, commitDisplayTime, setDuration]);
+  const seekRelative = useCallback(
+    (delta: number) => {
+      controller.seekTo(controller.getCurrentTime() + delta, { forceDisplay: true });
+    },
+    [controller]
+  );
 
   if (!activeJob) {
     return (
@@ -121,50 +117,22 @@ export function PlayerPanel({ activeJob, segments }: PlayerPanelProps) {
         {hasPlayableMedia ? (
           isVideo ? (
             <video
-              ref={(node) => {
-                mediaRef.current = node;
-              }}
+              ref={bindMediaRef}
               src={activeJob.fileUrl}
               playsInline
               className="h-full w-full object-contain"
-              onClick={togglePlay}
-              onTimeUpdate={(event) => commitDisplayTime(event.currentTarget.currentTime)}
-              onLoadedMetadata={(event) => {
-                const nextDuration = event.currentTarget.duration;
-                setDuration(nextDuration);
-                const savedPosition = getPlaybackPosition(activeJob.id);
-                if (savedPosition > 0 && savedPosition < nextDuration) {
-                  event.currentTarget.currentTime = savedPosition;
-                  commitDisplayTime(savedPosition, true);
-                }
-              }}
-              onPlay={() => setPlaying(true)}
-              onPause={(event) => {
-                setPlaying(false);
-                savePlaybackPosition(activeJob.id, event.currentTarget.currentTime);
-              }}
+              onClick={controller.togglePlay}
+              onLoadedMetadata={handleLoadedMetadata}
+              onPlay={controller.handleMediaPlay}
+              onPause={handlePause}
             />
           ) : (
             <audio
-              ref={(node) => {
-                mediaRef.current = node;
-              }}
+              ref={bindMediaRef}
               src={activeJob.fileUrl}
-              onTimeUpdate={(event) => commitDisplayTime(event.currentTarget.currentTime)}
-              onLoadedMetadata={(event) => {
-                const nextDuration = event.currentTarget.duration;
-                setDuration(nextDuration);
-                const savedPosition = getPlaybackPosition(activeJob.id);
-                if (savedPosition > 0 && savedPosition < nextDuration) {
-                  event.currentTarget.currentTime = savedPosition;
-                  commitDisplayTime(savedPosition, true);
-                }
-              }}
-              onPlay={() => setPlaying(true)}
-              onPause={(event) => {
-                setPlaying(false);
-                savePlaybackPosition(activeJob.id, event.currentTarget.currentTime);
-              }}
+              onLoadedMetadata={handleLoadedMetadata}
+              onPlay={controller.handleMediaPlay}
+              onPause={handlePause}
             />
           )
         ) : (
@@ -193,7 +161,7 @@ export function PlayerPanel({ activeJob, segments }: PlayerPanelProps) {
         {!isPlaying && hasPlayableMedia && (
           <button
             type="button"
-            onClick={togglePlay}
+            onClick={controller.togglePlay}
             className="absolute flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-2xl text-white backdrop-blur hover:bg-white/20"
             aria-label="播放"
           >
@@ -216,21 +184,21 @@ export function PlayerPanel({ activeJob, segments }: PlayerPanelProps) {
             <button
               type="button"
               className="rounded-md px-3 py-2 text-sm text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-              onClick={() => seekToLocal(playheadDisplayTime - 5)}
+              onClick={() => seekRelative(-5)}
             >
               -5s
             </button>
             <button
               type="button"
               className="rounded-full bg-neutral-100 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-white"
-              onClick={togglePlay}
+              onClick={controller.togglePlay}
             >
               {isPlaying ? '暂停' : '播放'}
             </button>
             <button
               type="button"
               className="rounded-md px-3 py-2 text-sm text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-              onClick={() => seekToLocal(playheadDisplayTime + 5)}
+              onClick={() => seekRelative(5)}
             >
               +5s
             </button>

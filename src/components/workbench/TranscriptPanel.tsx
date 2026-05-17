@@ -1,19 +1,21 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { usePlayerStore } from '../../stores/usePlayerStore';
 import { useSubtitleStore } from '../../stores/useSubtitleStore';
-import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
+import { useWorkbenchStore, type CutRange } from '../../stores/useWorkbenchStore';
 import type { Segment, SegmentStatus } from '../../types';
+import type { PlaybackController } from './usePlaybackController';
+import { segmentStartBoundaryId } from './useTimelineBoundaries';
 
 interface TranscriptPanelProps {
   segments: Segment[];
+  controller: PlaybackController;
 }
 
 interface TranscriptRowProps {
   segment: Segment;
   isActive: boolean;
   isSelected: boolean;
-  isPendingDelete: boolean;
+  isDeleted: boolean;
   onSelect: (segment: Segment) => void;
 }
 
@@ -28,28 +30,17 @@ function formatTime(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-function findActiveSegmentIndex(segments: Segment[], time: number): number {
-  if (segments.length === 0) return -1;
-  let lo = 0;
-  let hi = segments.length - 1;
-  let result = -1;
-
-  while (lo <= hi) {
-    const mid = (lo + hi) >>> 1;
-    if (segments[mid].start <= time) {
-      result = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-
-  if (result >= 0 && time <= segments[result].end) return result;
-  return result;
+function segmentIsDeleted(segment: Segment, ranges: CutRange[], mediaId: string | null): boolean {
+  if (segment.status === 'delete') return true;
+  return ranges.some((range) => {
+    if (range.mediaId !== mediaId) return false;
+    if (range.segmentIds?.includes(segment.id)) return true;
+    return range.sourceStart <= segment.start && range.sourceEnd >= segment.end;
+  });
 }
 
-function statusText(status: SegmentStatus, isPendingDelete: boolean): string {
-  if (status === 'delete' || isPendingDelete) return '删除';
+function statusText(status: SegmentStatus, isDeleted: boolean): string {
+  if (isDeleted) return '删除';
   if (status === 'keep') return '保留';
   return '待审';
 }
@@ -58,12 +49,11 @@ const TranscriptRow = memo(function TranscriptRow({
   segment,
   isActive,
   isSelected,
-  isPendingDelete,
+  isDeleted,
   onSelect,
 }: TranscriptRowProps) {
   const updateText = useSubtitleStore((state) => state.updateText);
   const [draft, setDraft] = useState(segment.edited_text || segment.raw_text);
-  const deleted = segment.status === 'delete' || isPendingDelete;
 
   useEffect(() => {
     setDraft(segment.edited_text || segment.raw_text);
@@ -84,7 +74,7 @@ const TranscriptRow = memo(function TranscriptRow({
           : isSelected
             ? 'border-amber-300/50 bg-amber-300/10'
             : 'border-neutral-800 bg-neutral-950 hover:border-neutral-700'
-      } ${deleted ? 'opacity-60' : ''}`}
+      } ${isDeleted ? 'opacity-60' : ''}`}
       onClick={() => onSelect(segment)}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -93,14 +83,14 @@ const TranscriptRow = memo(function TranscriptRow({
         </span>
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] ${
-            deleted
+            isDeleted
               ? 'bg-red-500/15 text-red-300'
               : segment.status === 'keep'
                 ? 'bg-emerald-500/15 text-emerald-300'
                 : 'bg-amber-500/15 text-amber-200'
           }`}
         >
-          {statusText(segment.status, isPendingDelete)}
+          {statusText(segment.status, isDeleted)}
         </span>
       </div>
       <textarea
@@ -113,37 +103,29 @@ const TranscriptRow = memo(function TranscriptRow({
           onSelect(segment);
         }}
         className={`block w-full resize-none bg-transparent text-sm leading-relaxed outline-none ${
-          deleted ? 'text-neutral-500 line-through' : 'text-neutral-200'
+          isDeleted ? 'text-neutral-500 line-through' : 'text-neutral-200'
         }`}
       />
     </div>
   );
 });
 
-export function TranscriptPanel({ segments }: TranscriptPanelProps) {
+export function TranscriptPanel({ segments, controller }: TranscriptPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedMediaId = useWorkbenchStore((state) => state.selectedMediaId);
   const selectedSegmentId = useWorkbenchStore((state) => state.selectedSegmentId);
   const activeSegmentId = useWorkbenchStore((state) => state.activeSegmentId);
-  const playheadDisplayTime = useWorkbenchStore((state) => state.playheadDisplayTime);
-  const followPlayhead = useWorkbenchStore((state) => state.followPlayhead);
-  const pendingCutRanges = useWorkbenchStore((state) => state.pendingCutRanges);
+  const cutRanges = useWorkbenchStore((state) => state.cutRanges);
   const setSelectedSegmentId = useWorkbenchStore((state) => state.setSelectedSegmentId);
   const setActiveSegmentId = useWorkbenchStore((state) => state.setActiveSegmentId);
-  const setPlayheadDisplayTime = useWorkbenchStore((state) => state.setPlayheadDisplayTime);
+  const setActiveBoundaryId = useWorkbenchStore((state) => state.setActiveBoundaryId);
+  const setSelectedRange = useWorkbenchStore((state) => state.setSelectedRange);
   const setLastActionMessage = useWorkbenchStore((state) => state.setLastActionMessage);
 
   const activeIndex = useMemo(
-    () => findActiveSegmentIndex(segments, playheadDisplayTime),
-    [segments, playheadDisplayTime]
+    () => (activeSegmentId ? segments.findIndex((segment) => segment.id === activeSegmentId) : -1),
+    [activeSegmentId, segments]
   );
-
-  const pendingDeletedSegmentIds = useMemo(() => {
-    const ids = new Set<string>();
-    pendingCutRanges.forEach((range) => {
-      if (range.segmentId) ids.add(range.segmentId);
-    });
-    return ids;
-  }, [pendingCutRanges]);
 
   const rowVirtualizer = useVirtualizer({
     count: segments.length,
@@ -154,21 +136,18 @@ export function TranscriptPanel({ segments }: TranscriptPanelProps) {
   });
 
   useEffect(() => {
-    const nextId = activeIndex >= 0 ? segments[activeIndex]?.id ?? null : null;
-    if (nextId !== activeSegmentId) {
-      setActiveSegmentId(nextId);
-    }
-  }, [activeIndex, activeSegmentId, segments, setActiveSegmentId]);
-
-  useEffect(() => {
-    if (!followPlayhead || activeIndex < 0) return;
+    if (activeIndex < 0) return;
     rowVirtualizer.scrollToIndex(activeIndex, { align: 'center' });
-  }, [activeIndex, followPlayhead, rowVirtualizer]);
+  }, [activeIndex, rowVirtualizer]);
 
   const handleSelect = (segment: Segment) => {
+    setSelectedRange(null);
     setSelectedSegmentId(segment.id);
-    setPlayheadDisplayTime(segment.start);
-    usePlayerStore.getState().seekTo(segment.start);
+    setActiveSegmentId(segment.id);
+    if (selectedMediaId) {
+      setActiveBoundaryId(segmentStartBoundaryId(selectedMediaId, segment.id));
+    }
+    controller.seekTo(segment.start, { forceDisplay: true });
     setLastActionMessage('已跳转到文稿段落');
   };
 
@@ -193,7 +172,7 @@ export function TranscriptPanel({ segments }: TranscriptPanelProps) {
               if (!segment) return null;
               const isActive = segment.id === activeSegmentId;
               const isSelected = segment.id === selectedSegmentId;
-              const isPendingDelete = pendingDeletedSegmentIds.has(segment.id);
+              const isDeleted = segmentIsDeleted(segment, cutRanges, selectedMediaId);
 
               return (
                 <div
@@ -207,7 +186,7 @@ export function TranscriptPanel({ segments }: TranscriptPanelProps) {
                     segment={segment}
                     isActive={isActive}
                     isSelected={isSelected}
-                    isPendingDelete={isPendingDelete}
+                    isDeleted={isDeleted}
                     onSelect={handleSelect}
                   />
                 </div>
