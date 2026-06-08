@@ -42,7 +42,7 @@ export function RoughCutWorkbench() {
   const mediaRestoredRef = useRef(false);
   const asrProvider: AsrProvider = 'local';
 
-  const { importFiles } = useMediaImportWorkflow(asrProvider);
+  const { importFiles, retryTranscription } = useMediaImportWorkflow(asrProvider);
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0];
   const playbackController = usePlaybackController({
     mediaId: activeJob?.id ?? null,
@@ -147,6 +147,12 @@ export function RoughCutWorkbench() {
     [importFiles, setLastActionMessage]
   );
 
+  const handleRetryTranscription = useCallback(() => {
+    if (!activeJob?.id) return;
+    retryTranscription(activeJob.id);
+    setLastActionMessage('已加入重新识别队列');
+  }, [activeJob?.id, retryTranscription, setLastActionMessage]);
+
   return (
     <div
       className="relative flex h-screen flex-col overflow-hidden bg-[#0a0a0a] text-neutral-100"
@@ -179,7 +185,12 @@ export function RoughCutWorkbench() {
           />
         </main>
 
-        <TranscriptPanel segments={segments} controller={playbackController} />
+        <TranscriptPanel
+          activeJobState={activeJob?.state}
+          segments={segments}
+          controller={playbackController}
+          onRetryTranscription={handleRetryTranscription}
+        />
       </div>
 
       <BottomStatusBar lastActionMessage={lastActionMessage} />

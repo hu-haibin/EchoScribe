@@ -7,8 +7,10 @@ import type { PlaybackController } from './usePlaybackController';
 import { segmentStartBoundaryId } from './useTimelineBoundaries';
 
 interface TranscriptPanelProps {
+  activeJobState?: string;
   segments: Segment[];
   controller: PlaybackController;
+  onRetryTranscription?: () => void;
 }
 
 interface TranscriptRowProps {
@@ -110,7 +112,7 @@ const TranscriptRow = memo(function TranscriptRow({
   );
 });
 
-export function TranscriptPanel({ segments, controller }: TranscriptPanelProps) {
+export function TranscriptPanel({ activeJobState, segments, controller, onRetryTranscription }: TranscriptPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedMediaId = useWorkbenchStore((state) => state.selectedMediaId);
   const selectedSegmentId = useWorkbenchStore((state) => state.selectedSegmentId);
@@ -162,7 +164,29 @@ export function TranscriptPanel({ segments, controller }: TranscriptPanelProps) 
 
       {segments.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-8 text-center text-sm text-neutral-500">
-          识别后将在这里显示文稿
+          <div>
+            <div>
+              {activeJobState === 'done'
+                ? '当前素材没有可用文稿'
+                : activeJobState === 'transcribing' || activeJobState === 'pending'
+                  ? '正在识别，完成后将在这里显示文稿'
+                  : '识别后将在这里显示文稿'}
+            </div>
+            {activeJobState === 'done' && (
+              <div className="mt-3">
+                <div className="mb-3 text-xs leading-relaxed text-neutral-600">
+                  如果刚才显示过“识别完成”但这里为空，可能是旧版本同步时把文稿清空了。
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-medium text-neutral-950 hover:bg-cyan-400"
+                  onClick={onRetryTranscription}
+                >
+                  重新识别当前素材
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto p-3">

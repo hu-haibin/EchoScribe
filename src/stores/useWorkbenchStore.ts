@@ -144,6 +144,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       redoStack: [],
       selectedRange: null,
       selectedCutRangeId: null,
+      activeBoundaryId: `manual-cut:${cutPoint.id}`,
       lastActionMessage: `已添加切点 ${cutPoint.sourceTime.toFixed(2)}s`,
     }));
     return cutPoint;
@@ -204,6 +205,9 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
       if (action.type === 'add-cut-point') {
         nextState.cutPoints = state.cutPoints.filter((cut) => cut.id !== action.cutPoint.id);
+        if (state.activeBoundaryId === `manual-cut:${action.cutPoint.id}`) {
+          nextState.activeBoundaryId = null;
+        }
       } else if (action.type === 'add-cut-range') {
         nextState.cutRanges = state.cutRanges.filter((range) => range.id !== action.cutRange.id);
         nextState.selectedCutRangeId = null;

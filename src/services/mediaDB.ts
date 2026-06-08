@@ -27,26 +27,49 @@ export async function saveMediaFile(jobId: string, file: File): Promise<void> {
   });
 }
 
-/** Load a media file from IndexedDB and return a blob URL + metadata. */
-export async function loadMediaFile(
-  jobId: string,
-): Promise<{ fileUrl: string; fileName: string; fileType: string } | null> {
+interface StoredMediaRecord {
+  blob: Blob;
+  fileName: string;
+  fileType: string;
+  savedAt: number;
+}
+
+async function loadMediaRecord(jobId: string): Promise<StoredMediaRecord | null> {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).get(jobId);
     request.onsuccess = () => {
-      const record = request.result;
+      const record = request.result as StoredMediaRecord | undefined;
       if (!record || !record.blob) {
         resolve(null);
         return;
       }
-      const fileUrl = URL.createObjectURL(record.blob);
-      resolve({ fileUrl, fileName: record.fileName, fileType: record.fileType });
+      resolve(record);
     };
     request.onerror = () => reject(request.error);
   });
+}
+
+/** Load a media file from IndexedDB and return a blob URL + metadata. */
+export async function loadMediaFile(
+  jobId: string,
+): Promise<{ fileUrl: string; fileName: string; fileType: string } | null> {
+  const record = await loadMediaRecord(jobId);
+  if (!record) return null;
+  return {
+    fileUrl: URL.createObjectURL(record.blob),
+    fileName: record.fileName,
+    fileType: record.fileType || record.blob.type,
+  };
+}
+
+/** Load a media file from IndexedDB as a File so it can be re-transcribed. */
+export async function loadMediaFileObject(jobId: string): Promise<File | null> {
+  const record = await loadMediaRecord(jobId);
+  if (!record) return null;
+  return new File([record.blob], record.fileName, { type: record.fileType || record.blob.type });
 }
 
 /** Remove a media file from IndexedDB. */

@@ -150,6 +150,16 @@ export function RoughCutTimeline({ activeJob, segments, boundaries, controller, 
     });
   }, [activeSegment, addCutRange, mediaId, selectedRange, selectedSegment, setLastActionMessage]);
 
+  const handleAddCutAtPlayhead = useCallback(() => {
+    if (!mediaId) {
+      setLastActionMessage('请先选择素材');
+      return;
+    }
+    const cutPoint = addCutPoint({ mediaId, sourceTime: controller.getCurrentTime() });
+    setCurrentTool('select');
+    setLastActionMessage(`已在播放头添加切点 ${cutPoint.sourceTime.toFixed(2)}s`);
+  }, [addCutPoint, controller, mediaId, setCurrentTool, setLastActionMessage]);
+
   const handleWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
       if (event.ctrlKey || event.metaKey) {
@@ -318,7 +328,8 @@ export function RoughCutTimeline({ activeJob, segments, boundaries, controller, 
             className={`rounded px-2 py-1 text-xs ${
               currentTool === 'blade' ? 'bg-amber-500/20 text-amber-200' : 'text-neutral-500 hover:bg-neutral-800'
             }`}
-            onClick={() => setCurrentTool('blade')}
+            onClick={handleAddCutAtPlayhead}
+            title="在当前播放头添加切点"
           >
             切割
           </button>

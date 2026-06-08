@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useSubtitleStore } from '../stores/useSubtitleStore';
 import { estimateMediaDuration } from '../services/localMedia';
-import { saveMediaFile } from '../services/mediaDB';
+import { loadMediaFileObject, saveMediaFile } from '../services/mediaDB';
 import {
   CLOUD_ASR_MODEL,
   CLOUD_ASR_PROVIDER,
@@ -188,9 +188,48 @@ export function useMediaImportWorkflow(asrProvider: AsrProvider = 'local') {
     [asrProvider, createJobFromFile, enqueueTranscription, setActiveJob, setSegments]
   );
 
+  const retryTranscription = useCallback(
+    (jobId: string) => {
+      const job = useProjectStore.getState().jobs.find((item) => item.id === jobId);
+      if (!job) return;
+
+      updateJob(jobId, {
+        state: 'pending',
+        progress: 0,
+        progressMessage: '正在读取本地素材，准备重新识别…',
+        errorMessage: undefined,
+      });
+
+      void loadMediaFileObject(jobId)
+        .then((file) => {
+          if (!file) {
+            updateJob(jobId, {
+              state: 'error',
+              progress: 0,
+              progressMessage: undefined,
+              errorMessage: '没有找到本地媒体文件，请重新导入素材后再识别。',
+            });
+            return;
+          }
+
+          enqueueTranscription(jobId, file, asrProvider);
+        })
+        .catch((error) => {
+          updateJob(jobId, {
+            state: 'error',
+            progress: 0,
+            progressMessage: undefined,
+            errorMessage: error instanceof Error ? error.message : '无法读取本地媒体文件。',
+          });
+        });
+    },
+    [asrProvider, enqueueTranscription, updateJob]
+  );
+
   return {
     acceptedExtensions: ACCEPTED_MEDIA_EXTENSIONS,
     importFiles,
+    retryTranscription,
     importSummary,
     clearImportSummary: () => setImportSummary(null),
   };
