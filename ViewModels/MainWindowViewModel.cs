@@ -65,30 +65,32 @@ public partial class MainWindowViewModel : ViewModelBase
         return home;
     }
 
-    private void NavigateToLyrics(Job job)
+    private async void NavigateToLyrics(Job job)
     {
         DisposeActivePlayer();
-        var player = new PlayerViewModel(audioOnly: true);
+        WindowTitle = $"歌词模式 - {job.FileName}";
+
+        var player = await Task.Run(() => new PlayerViewModel(audioOnly: true));
         _activePlayer = player;
 
         var lyrics = new LyricsViewModel(job, _project, player);
         lyrics.GoBackRequested += () => NavigateHome();
         lyrics.Initialize();
         CurrentView = lyrics;
-        WindowTitle = $"歌词模式 - {job.FileName}";
     }
 
-    private void NavigateToWorkbench(Job job)
+    private async void NavigateToWorkbench(Job job)
     {
         DisposeActivePlayer();
-        var player = new PlayerViewModel(audioOnly: false);
+        WindowTitle = $"剪辑工作台 - {job.FileName}";
+
+        var player = await Task.Run(() => new PlayerViewModel(audioOnly: false));
         _activePlayer = player;
 
         var workbench = new WorkbenchViewModel(job, _project, player);
         workbench.GoBackRequested += () => NavigateHome();
         workbench.Initialize();
         CurrentView = workbench;
-        WindowTitle = $"剪辑工作台 - {job.FileName}";
     }
 
     private void NavigateHome()
