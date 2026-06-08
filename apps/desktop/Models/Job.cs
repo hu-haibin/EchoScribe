@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace KoubojianJi.Models;
+namespace EchoScribe.Desktop.Models;
 
 public partial class Job : ObservableObject
 {

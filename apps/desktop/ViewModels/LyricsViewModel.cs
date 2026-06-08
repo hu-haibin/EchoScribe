@@ -1,9 +1,9 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using KoubojianJi.Models;
+using EchoScribe.Desktop.Models;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public partial class LyricsViewModel : ViewModelBase
 {

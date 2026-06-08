@@ -1,7 +1,7 @@
-﻿using Avalonia;
+using Avalonia;
 using System;
 
-namespace KoubojianJi;
+namespace EchoScribe.Desktop;
 
 sealed class Program
 {

@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using KoubojianJi.Models;
+using EchoScribe.Desktop.Models;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public partial class LyricLineViewModel : ObservableObject
 {

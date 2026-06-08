@@ -2,7 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LibVLCSharp.Shared;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public partial class PlayerViewModel : ViewModelBase, IDisposable
 {

@@ -1,6 +1,6 @@
-using KoubojianJi.Models;
+using EchoScribe.Desktop.Models;
 
-namespace KoubojianJi.Services;
+namespace EchoScribe.Desktop.Services;
 
 public interface IAsrService
 {

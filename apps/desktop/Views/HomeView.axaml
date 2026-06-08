@@ -1,11 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:KoubojianJi.ViewModels"
-             xmlns:models="using:KoubojianJi.Models"
+             xmlns:vm="using:EchoScribe.Desktop.ViewModels"
+             xmlns:models="using:EchoScribe.Desktop.Models"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
-             x:Class="KoubojianJi.Views.HomeView"
+             x:Class="EchoScribe.Desktop.Views.HomeView"
              x:DataType="vm:HomeViewModel"
              DragDrop.AllowDrop="True">
 
@@ -59,7 +59,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,18">
             <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBlock Text="口播剪辑" FontSize="22" FontWeight="Bold" Foreground="White"/>
+                <TextBlock Text="EchoScribe Desktop" FontSize="22" FontWeight="Bold" Foreground="White"/>
                 <Border Background="#4A3FB0" CornerRadius="4"
                         Padding="7,2" VerticalAlignment="Center">
                     <TextBlock Text="Beta" FontSize="10" Foreground="#B0B0D0"/>

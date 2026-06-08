@@ -1,7 +1,7 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public static class TimeConverters
 {

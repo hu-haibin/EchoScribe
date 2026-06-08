@@ -1,10 +1,10 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using KoubojianJi.Models;
-using KoubojianJi.Services;
+using EchoScribe.Desktop.Models;
+using EchoScribe.Desktop.Services;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public partial class WorkbenchViewModel : ViewModelBase
 {

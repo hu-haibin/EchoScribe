@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
-namespace KoubojianJi.Views;
+namespace EchoScribe.Desktop.Views;
 
 public partial class MainWindow : Window
 {

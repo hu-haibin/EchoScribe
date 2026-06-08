@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace KoubojianJi.Views.Controls;
+namespace EchoScribe.Desktop.Views.Controls;
 
 public partial class PlayerControl : UserControl
 {

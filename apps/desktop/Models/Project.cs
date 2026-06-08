@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace KoubojianJi.Models;
+namespace EchoScribe.Desktop.Models;
 
 public class Project
 {

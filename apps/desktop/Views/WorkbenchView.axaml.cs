@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace KoubojianJi.Views;
+namespace EchoScribe.Desktop.Views;
 
 public partial class WorkbenchView : UserControl
 {

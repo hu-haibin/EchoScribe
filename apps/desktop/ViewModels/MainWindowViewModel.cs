@@ -1,9 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using KoubojianJi.Models;
-using KoubojianJi.Services;
+using EchoScribe.Desktop.Models;
+using EchoScribe.Desktop.Services;
 
-namespace KoubojianJi.ViewModels;
+namespace EchoScribe.Desktop.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
 {
@@ -14,13 +14,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private static readonly string AutoSavePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "KoubojianJi", "autosave.kbjj");
+        "EchoScribe.Desktop", "autosave.kbjj");
 
     [ObservableProperty]
     private ViewModelBase _currentView;
 
     [ObservableProperty]
-    private string _windowTitle = "口播剪辑";
+    private string _windowTitle = "EchoScribe Desktop";
 
     public MainWindowViewModel()
     {
@@ -98,7 +98,7 @@ public partial class MainWindowViewModel : ViewModelBase
         DisposeActivePlayer();
         _ = AutoSaveAsync();
         CurrentView = CreateHomeViewModel();
-        WindowTitle = "口播剪辑";
+        WindowTitle = "EchoScribe Desktop";
     }
 
     private void DisposeActivePlayer()
@@ -147,7 +147,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 AllowMultiple = false,
                 FileTypeFilter =
                 [
-                    new Avalonia.Platform.Storage.FilePickerFileType("口播剪辑项目") { Patterns = ["*.kbjj"] }
+                    new Avalonia.Platform.Storage.FilePickerFileType("EchoScribe Project") { Patterns = ["*.kbjj"] }
                 ]
             });
 
@@ -158,6 +158,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _project = loaded;
 
         NavigateHome();
-        WindowTitle = $"口播剪辑 - {_project.Name}";
+        WindowTitle = $"EchoScribe Desktop - {_project.Name}";
     }
 }

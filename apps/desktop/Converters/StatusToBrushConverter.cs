@@ -1,9 +1,9 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using KoubojianJi.Models;
+using EchoScribe.Desktop.Models;
 
-namespace KoubojianJi.Converters;
+namespace EchoScribe.Desktop.Converters;
 
 public class StatusToBrushConverter : IValueConverter
 {

@@ -1,4 +1,4 @@
-namespace KoubojianJi.Services;
+namespace EchoScribe.Desktop.Services;
 
 public interface IMediaService
 {

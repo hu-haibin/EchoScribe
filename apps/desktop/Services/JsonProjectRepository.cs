@@ -1,7 +1,7 @@
 using System.Text.Json;
-using KoubojianJi.Models;
+using EchoScribe.Desktop.Models;
 
-namespace KoubojianJi.Services;
+namespace EchoScribe.Desktop.Services;
 
 public class JsonProjectRepository : IProjectRepository
 {

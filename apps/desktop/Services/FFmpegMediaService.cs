@@ -1,6 +1,6 @@
 using FFMpegCore;
 
-namespace KoubojianJi.Services;
+namespace EchoScribe.Desktop.Services;
 
 public class FFmpegMediaService : IMediaService
 {

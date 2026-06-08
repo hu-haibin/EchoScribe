@@ -1,12 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:KoubojianJi.ViewModels"
-             xmlns:models="using:KoubojianJi.Models"
-             xmlns:controls="using:KoubojianJi.Views.Controls"
+             xmlns:vm="using:EchoScribe.Desktop.ViewModels"
+             xmlns:models="using:EchoScribe.Desktop.Models"
+             xmlns:controls="using:EchoScribe.Desktop.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
-             x:Class="KoubojianJi.Views.WorkbenchView"
+             x:Class="EchoScribe.Desktop.Views.WorkbenchView"
              x:DataType="vm:WorkbenchViewModel">
 
     <UserControl.Styles>

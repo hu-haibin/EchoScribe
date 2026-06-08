@@ -2,9 +2,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using KoubojianJi.ViewModels;
+using EchoScribe.Desktop.ViewModels;
 
-namespace KoubojianJi.Views;
+namespace EchoScribe.Desktop.Views;
 
 public partial class LyricsView : UserControl
 {

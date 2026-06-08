@@ -1,10 +1,10 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using KoubojianJi.ViewModels;
-using KoubojianJi.Views;
+using EchoScribe.Desktop.ViewModels;
+using EchoScribe.Desktop.Views;
 
-namespace KoubojianJi;
+namespace EchoScribe.Desktop;
 
 public partial class App : Application
 {

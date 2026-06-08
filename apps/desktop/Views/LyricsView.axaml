@@ -1,11 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:KoubojianJi.ViewModels"
-             xmlns:controls="using:KoubojianJi.Views.Controls"
+             xmlns:vm="using:EchoScribe.Desktop.ViewModels"
+             xmlns:controls="using:EchoScribe.Desktop.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
-             x:Class="KoubojianJi.Views.LyricsView"
+             x:Class="EchoScribe.Desktop.Views.LyricsView"
              x:DataType="vm:LyricsViewModel">
 
     <Grid RowDefinitions="Auto,*,Auto" Background="#2B2B2B">

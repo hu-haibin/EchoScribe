@@ -1,10 +1,10 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
-using KoubojianJi.Models;
-using KoubojianJi.ViewModels;
+using EchoScribe.Desktop.Models;
+using EchoScribe.Desktop.ViewModels;
 
-namespace KoubojianJi.Views;
+namespace EchoScribe.Desktop.Views;
 
 public partial class HomeView : UserControl
 {

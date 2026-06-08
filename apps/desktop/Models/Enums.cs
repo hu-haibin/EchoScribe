@@ -1,4 +1,4 @@
-namespace KoubojianJi.Models;
+namespace EchoScribe.Desktop.Models;
 
 public enum SegmentStatus
 {
