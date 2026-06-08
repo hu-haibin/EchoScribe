@@ -1,0 +1,23 @@
+# Repository-wide ignores
+.vs/
+*.suo
+*.user
+*.DotSettings.user
+
+# Web app
+apps/web/node_modules/
+apps/web/dist/
+apps/web/dist-ssr/
+apps/web/test-results/
+apps/web/.cache/
+apps/web/__pycache__/
+apps/web/local-asr/tmp/
+apps/web/local-asr/uploads/
+apps/web/local-asr/models/
+apps/web/.env
+apps/web/.env.*
+!apps/web/.env.example
+
+# Desktop app
+apps/desktop/bin/
+apps/desktop/obj/
