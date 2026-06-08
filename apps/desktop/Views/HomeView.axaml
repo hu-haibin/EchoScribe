@@ -1,0 +1,177 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KoubojianJi.ViewModels"
+             xmlns:models="using:KoubojianJi.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+             x:Class="KoubojianJi.Views.HomeView"
+             x:DataType="vm:HomeViewModel"
+             DragDrop.AllowDrop="True">
+
+    <UserControl.Styles>
+        <Style Selector="Border.job-card">
+            <Setter Property="Background" Value="#222240"/>
+            <Setter Property="BorderBrush" Value="#2D2D50"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Border.job-card:pointerover">
+            <Setter Property="Background" Value="#2A2A4A"/>
+            <Setter Property="BorderBrush" Value="#6C5CE7"/>
+        </Style>
+
+        <Style Selector="Border.drop-zone">
+            <Setter Property="Background" Value="#222240"/>
+            <Setter Property="BorderBrush" Value="#2D2D50"/>
+        </Style>
+        <Style Selector="Border.drop-zone:pointerover">
+            <Setter Property="Background" Value="#2A2A4A"/>
+            <Setter Property="BorderBrush" Value="#6C5CE7"/>
+        </Style>
+
+        <Style Selector="Button.ghost">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#2D2D50"/>
+            <Setter Property="Foreground" Value="#8888AA"/>
+            <Setter Property="Padding" Value="14,5"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2A2A4A"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#6C5CE7"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="14,5"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#7D6FF0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*" Margin="28,20">
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,18">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="口播剪辑" FontSize="22" FontWeight="Bold" Foreground="White"/>
+                <Border Background="#4A3FB0" CornerRadius="4"
+                        Padding="7,2" VerticalAlignment="Center">
+                    <TextBlock Text="Beta" FontSize="10" Foreground="#B0B0D0"/>
+                </Border>
+            </StackPanel>
+            <TextBlock Text="导入音视频 → AI 语音识别 → 按文字剪辑 → 导出成片"
+                       Foreground="#8888AA" FontSize="12"/>
+        </StackPanel>
+
+        <!-- Drop Zone -->
+        <Border Grid.Row="1" Classes="drop-zone" Name="DropZone"
+                BorderThickness="1.5" CornerRadius="10"
+                Padding="24,18" Margin="0,0,0,14">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="5">
+                    <TextBlock Text="拖放文件到此处，或点击右侧导入"
+                               FontSize="14" Foreground="#A0A0C0"/>
+                    <TextBlock Text="MP4 / MKV / MOV / MP3 / WAV / M4A / AAC / FLAC"
+                               FontSize="11" Foreground="#8888AA"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <ComboBox SelectedIndex="0" SelectionChanged="OnProviderChanged"
+                              MinWidth="100" FontSize="12" Padding="8,4">
+                        <ComboBoxItem Content="本地识别"/>
+                        <ComboBoxItem Content="云端识别"/>
+                    </ComboBox>
+                    <Button Content="导入文件" Command="{Binding ImportFileCommand}"
+                            Classes="accent" Padding="18,7" FontSize="13"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Job List -->
+        <ScrollViewer Grid.Row="2">
+            <StackPanel Spacing="4">
+                <TextBlock Text="还没有任务，拖入文件开始"
+                           HorizontalAlignment="Center"
+                           Foreground="#666680"
+                           Margin="0,48,0,0" FontSize="13"
+                           IsVisible="{Binding !Jobs.Count}"/>
+
+                <ItemsControl ItemsSource="{Binding Jobs}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:Job">
+                            <Border Classes="job-card" CornerRadius="8" Padding="14,12"
+                                    BorderThickness="1">
+                                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                                    <!-- Icon -->
+                                    <Border Grid.Column="0" Grid.RowSpan="2"
+                                            Width="36" Height="36" CornerRadius="8"
+                                            Background="#2D2D50"
+                                            Margin="0,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock Text="♫" FontSize="16"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" Foreground="#8888AA"/>
+                                    </Border>
+
+                                    <!-- Info -->
+                                    <StackPanel Grid.Column="1" Grid.Row="0" Spacing="3">
+                                        <TextBlock Text="{Binding FileName}" FontSize="13"
+                                                   FontWeight="Medium" Foreground="White"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Border CornerRadius="3" Padding="6,2" Background="#2D2D50">
+                                                <TextBlock Text="{Binding StateText}" FontSize="10"
+                                                           Foreground="#8888AA"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding ProgressMessage}" FontSize="11"
+                                                       Foreground="#8888AA" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- Progress -->
+                                    <ProgressBar Grid.Column="1" Grid.Row="1"
+                                                 Value="{Binding Progress}" Maximum="100"
+                                                 IsVisible="{Binding IsWorking}"
+                                                 Height="2" Margin="0,5,0,0"
+                                                 CornerRadius="1" Foreground="#6C5CE7"/>
+
+                                    <!-- Error -->
+                                    <TextBlock Grid.Column="1" Grid.Row="1"
+                                               Text="{Binding ErrorMessage}"
+                                               FontSize="11" Foreground="#FF6B6B"
+                                               Margin="0,3,0,0"
+                                               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                               TextTrimming="CharacterEllipsis"/>
+
+                                    <!-- Buttons -->
+                                    <StackPanel Grid.Column="2" Grid.RowSpan="2"
+                                                Orientation="Horizontal" Spacing="5"
+                                                VerticalAlignment="Center" Margin="10,0,0,0">
+                                        <Button Content="歌词" Classes="ghost"
+                                                Command="{Binding $parent[ItemsControl].((vm:HomeViewModel)DataContext).OpenLyricsCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsVisible="{Binding IsDone}"/>
+                                        <Button Content="剪辑" Classes="primary"
+                                                Command="{Binding $parent[ItemsControl].((vm:HomeViewModel)DataContext).OpenWorkbenchCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsVisible="{Binding IsDone}"/>
+                                        <Button Content="重新识别" Classes="ghost"
+                                                Command="{Binding $parent[ItemsControl].((vm:HomeViewModel)DataContext).RetryTranscriptionCommand}"
+                                                CommandParameter="{Binding}"
+                                                IsVisible="{Binding CanRetry}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

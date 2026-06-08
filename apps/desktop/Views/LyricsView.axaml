@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KoubojianJi.ViewModels"
+             xmlns:controls="using:KoubojianJi.Views.Controls"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="KoubojianJi.Views.LyricsView"
+             x:DataType="vm:LyricsViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="#2B2B2B">
+        <!-- Top bar -->
+        <Button Grid.Row="0" Content="∨" Command="{Binding GoBackCommand}"
+                Background="Transparent" Foreground="#606060"
+                FontSize="22" Padding="18,8" HorizontalAlignment="Left"
+                Cursor="Hand"/>
+
+        <!-- Lyrics scroll area -->
+        <ScrollViewer Grid.Row="1" Name="LyricsScroller"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Hidden">
+            <StackPanel>
+                <!-- Top spacer: allows first item to center -->
+                <Border Name="TopSpacer" Height="300"/>
+
+                <ItemsControl ItemsSource="{Binding Lines}" Name="LyricsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LyricLineViewModel">
+                            <Border Height="72" HorizontalAlignment="Stretch"
+                                    Tapped="OnLyricTapped" Tag="{Binding}"
+                                    Cursor="Hand" Background="Transparent"
+                                    Opacity="{Binding Opacity}">
+                                <Border.Transitions>
+                                    <Transitions>
+                                        <DoubleTransition Property="Opacity" Duration="0:0:0.45"/>
+                                    </Transitions>
+                                </Border.Transitions>
+
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                            MaxWidth="640">
+                                    <Border HorizontalAlignment="Center" Margin="0,0,0,3"
+                                            IsVisible="{Binding Speaker, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                            Background="#18FFFFFF" CornerRadius="10" Padding="10,2">
+                                        <TextBlock Text="{Binding Speaker}" FontSize="11"
+                                                   Foreground="#80FFFFFF" TextAlignment="Center"/>
+                                    </Border>
+
+                                    <TextBlock Text="{Binding Text}"
+                                               IsVisible="{Binding IsActive}"
+                                               FontSize="21" FontWeight="SemiBold"
+                                               Foreground="White"
+                                               TextAlignment="Center" TextWrapping="Wrap"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Text}"
+                                               IsVisible="{Binding !IsActive}"
+                                               FontSize="16" FontWeight="Normal"
+                                               Foreground="#B0B0B0"
+                                               TextAlignment="Center" TextWrapping="Wrap"
+                                               HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Bottom spacer: allows last item to center -->
+                <Border Name="BottomSpacer" Height="300"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Player -->
+        <controls:PlayerControl Grid.Row="2" DataContext="{Binding Player}"/>
+    </Grid>
+</UserControl>

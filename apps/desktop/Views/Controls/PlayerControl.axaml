@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:KoubojianJi.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="KoubojianJi.Views.Controls.PlayerControl"
+             x:DataType="vm:PlayerViewModel">
+
+    <Border Background="#16162A" Padding="16,10"
+            BorderThickness="0,1,0,0" BorderBrush="#2D2D50">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" RowDefinitions="Auto">
+            <!-- Play -->
+            <Button Grid.Column="0" Command="{Binding TogglePlayCommand}"
+                    Width="36" Height="36" Padding="0" CornerRadius="18"
+                    Background="#6C5CE7"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    Margin="0,0,12,0">
+                <Panel>
+                    <TextBlock Text="||" FontSize="14" Foreground="White"
+                               HorizontalAlignment="Center" IsVisible="{Binding IsPlaying}"/>
+                    <TextBlock Text="▶" FontSize="12" Foreground="White"
+                               HorizontalAlignment="Center" IsVisible="{Binding !IsPlaying}"/>
+                </Panel>
+            </Button>
+
+            <!-- Time -->
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="0,0,14,0"
+                       FontFamily="Consolas" FontSize="12" Foreground="#8888AA">
+                <TextBlock.Text>
+                    <MultiBinding StringFormat="{}{0:mm\:ss} / {1:mm\:ss}">
+                        <Binding Path="CurrentTime" Converter="{x:Static vm:TimeConverters.SecondsToTimeSpan}"/>
+                        <Binding Path="Duration" Converter="{x:Static vm:TimeConverters.SecondsToTimeSpan}"/>
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+
+            <!-- Seek -->
+            <Slider Grid.Column="2" Minimum="0" Maximum="{Binding Duration}"
+                    Value="{Binding CurrentTime}" VerticalAlignment="Center"
+                    Margin="0,0,14,0"/>
+
+            <!-- Volume -->
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4"
+                        VerticalAlignment="Center" Margin="0,0,14,0">
+                <TextBlock Text="♪" FontSize="13" Foreground="#8888AA" VerticalAlignment="Center"/>
+                <Slider Minimum="0" Maximum="1" Value="{Binding Volume}"
+                        Width="70" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Rate -->
+            <ComboBox Grid.Column="4" ItemsSource="{x:Static vm:PlayerViewModel.PlaybackRates}"
+                      SelectedItem="{Binding PlaybackRate}"
+                      MinWidth="65" FontSize="12" Padding="6,3" VerticalAlignment="Center"/>
+        </Grid>
+    </Border>
+</UserControl>
