@@ -18,6 +18,19 @@ npm install
 npm run dev
 ```
 
+Cloud ASR without Docker:
+
+```bash
+cd apps/web
+cp .env.example .env
+# fill in VOLCENGINE_SPEECH_API_KEY
+# or fill in VOLCENGINE_SPEECH_APP_ID + VOLCENGINE_SPEECH_ACCESS_TOKEN
+cd local-asr
+./run-cloud.sh
+```
+
+Then keep the Vite dev server running in `apps/web` and choose the cloud ASR option in the UI.
+
 Production build:
 
 ```bash

@@ -132,7 +132,7 @@ public class LocalAsrService : IAsrService
             "Queued locally, waiting for the transcription worker." => "已加入识别队列。",
             "Preparing media for local transcription." => "正在准备本地识别任务…",
             "Preparing media for cloud transcription." => "正在准备云端识别任务…",
-            "Calling Aliyun Paraformer API." => "正在调用阿里云 Paraformer 识别…",
+            "Calling Volcengine Doubao Speech API." => "正在调用火山引擎豆包语音识别…",
             "Extracting audio from the video file." => "正在从视频中提取音频…",
             "Reading media duration." => "正在读取媒体时长…",
             "Inspecting media and preparing chunks." => "正在分析文件并准备分段…",

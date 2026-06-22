@@ -1,10 +1,10 @@
 import type { Segment } from '../types';
 
 export const LOCAL_ASR_PROVIDER = 'local-qwen3-asr';
-export const CLOUD_ASR_PROVIDER = 'aliyun-paraformer';
+export const CLOUD_ASR_PROVIDER = 'volcengine-doubao-asr';
 export const DEFAULT_ASR_MODEL = 'Qwen/Qwen3-ASR-1.7B';
 export const DEFAULT_ASR_ALIGNER = 'Qwen/Qwen3-ForcedAligner-0.6B';
-export const CLOUD_ASR_MODEL = 'paraformer-v2';
+export const CLOUD_ASR_MODEL = 'volc.bigasr.auc_turbo';
 
 export type AsrProvider = 'local' | 'cloud';
 
@@ -120,8 +120,8 @@ function localizeProgressMessage(payload: TranscriptionJobPayload, status: Trans
   if (raw === 'Preparing media for cloud transcription.') {
     return '正在准备云端识别任务…';
   }
-  if (raw === 'Calling Aliyun Paraformer API.') {
-    return '正在调用阿里云 Paraformer 识别…';
+  if (raw === 'Calling Volcengine Doubao Speech API.') {
+    return '正在调用火山引擎豆包语音识别…';
   }
   if (raw === 'Extracting audio from the video file.') {
     return '正在从视频中提取音频…';

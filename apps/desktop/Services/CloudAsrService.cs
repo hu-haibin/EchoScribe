@@ -46,7 +46,7 @@ public class CloudAsrService : IAsrService
             if (progressVal > highWater) highWater = progressVal;
 
             var message = (TryGetString(snapshot, "message") ?? "").Trim();
-            if (message == "Calling Aliyun Paraformer API.") message = "正在调用阿里云 Paraformer 识别…";
+            if (message == "Calling Volcengine Doubao Speech API.") message = "正在调用火山引擎豆包语音识别…";
             else if (string.IsNullOrEmpty(message)) message = "云端识别中…";
 
             progress?.Report(new TranscriptionProgress
@@ -113,8 +113,8 @@ public class CloudAsrService : IAsrService
 
         return new TranscriptionResult
         {
-            Provider = TryGetString(result, "provider") ?? "aliyun-paraformer",
-            Model = TryGetString(result, "model") ?? "paraformer-v2",
+            Provider = TryGetString(result, "provider") ?? "volcengine-doubao-asr",
+            Model = TryGetString(result, "model") ?? "volc.bigasr.auc_turbo",
             Aligner = TryGetString(result, "aligner") ?? "",
             Segments = segments,
             FullText = TryGetString(result, "fullText") ?? string.Join("", segments.Select(s => s.EditedText)),

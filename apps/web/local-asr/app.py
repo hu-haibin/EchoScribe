@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
 import shutil
@@ -19,9 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 PROVIDER = "local-qwen3-asr"
-CLOUD_PROVIDER = "aliyun-paraformer"
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-CLOUD_MODEL = "paraformer-v2"
+CLOUD_PROVIDER = "volcengine-doubao-asr"
+VOLCENGINE_ASR_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
+CLOUD_MODEL = "volc.bigasr.auc_turbo"
+SUPPORTED_CLOUD_AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg", ".opus"}
 DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B"
 DEFAULT_FALLBACK_MODEL = "Qwen/Qwen3-ASR-0.6B"
 DEFAULT_ALIGNER = "Qwen/Qwen3-ForcedAligner-0.6B"
@@ -284,6 +286,71 @@ def _extract_audio_if_needed(path: Path, workdir: Path) -> Path:
     except subprocess.CalledProcessError as exc:
         raise HTTPException(status_code=422, detail=f"Failed to extract audio from video: {exc.stderr[-500:]}") from exc
     return output
+
+
+def _transcode_audio_for_cloud(path: Path, workdir: Path) -> Path:
+    if path.suffix.lower() in SUPPORTED_CLOUD_AUDIO_EXTENSIONS:
+        return path
+
+    output = workdir / f"{path.stem}_cloud.wav"
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        try:
+            subprocess.run(
+                [
+                    ffmpeg_path,
+                    "-y",
+                    "-i",
+                    str(path),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    str(output),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=600,
+            )
+            return output
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to transcode audio for cloud transcription: {exc.stderr[-500:]}") from exc
+
+    afconvert_path = shutil.which("afconvert")
+    if afconvert_path:
+        try:
+            subprocess.run(
+                [
+                    afconvert_path,
+                    "-f",
+                    "WAVE",
+                    "-d",
+                    "LEI16@16000",
+                    "-c",
+                    "1",
+                    str(path),
+                    str(output),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=600,
+            )
+            return output
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to transcode audio for cloud transcription: {exc.stderr[-500:]}") from exc
+
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"云端识别仅支持 {', '.join(sorted(SUPPORTED_CLOUD_AUDIO_EXTENSIONS))}。"
+            "当前文件需要先转码，但系统中找不到 ffmpeg 或 afconvert。"
+        ),
+    )
 
 
 def _is_oom(error: BaseException) -> bool:
@@ -1063,15 +1130,28 @@ async def _run_transcription_job(job_id: str, input_path: Path, workdir: Path) -
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _dashscope_api_key() -> str | None:
-    return _env_optional("DASHSCOPE_API_KEY")
+def _volcengine_api_key() -> str | None:
+    return _env_optional("VOLCENGINE_SPEECH_API_KEY")
+
+
+def _volcengine_app_id() -> str | None:
+    return _env_optional("VOLCENGINE_SPEECH_APP_ID")
+
+
+def _volcengine_access_token() -> str | None:
+    return _env_optional("VOLCENGINE_SPEECH_ACCESS_TOKEN") or _env_optional("VOLCENGINE_SPEECH_ACCESS_KEY")
+
+
+def _volcengine_resource_id() -> str:
+    return _env("VOLCENGINE_SPEECH_RESOURCE_ID", CLOUD_MODEL)
 
 
 def _cloud_segments_from_response(data: dict[str, Any], duration: float) -> tuple[list[dict[str, Any]], str]:
-    """Convert DashScope OpenAI-compatible verbose_json response to our segment format."""
+    """Convert Volcengine Doubao ASR response to our segment format."""
     segments: list[dict[str, Any]] = []
-    raw_segments = data.get("segments") or []
-    full_text = data.get("text", "")
+    result = data.get("result") or {}
+    raw_segments = result.get("utterances") or []
+    full_text = _clean_text(result.get("text", ""))
 
     if not raw_segments:
         # Fallback: build coarse segments from full text
@@ -1083,8 +1163,8 @@ def _cloud_segments_from_response(data: dict[str, Any], duration: float) -> tupl
         text = _clean_text(seg.get("text", ""))
         if not text:
             continue
-        start = float(seg.get("start", 0))
-        end = float(seg.get("end", start + 2))
+        start = _to_seconds(seg.get("start_time", 0))
+        end = _to_seconds(seg.get("end_time", start + 2))
         segments.append({
             "id": f"seg_{index:04d}",
             "start": round(start, 2),
@@ -1106,37 +1186,64 @@ def _cloud_segments_from_response(data: dict[str, Any], duration: float) -> tupl
     return segments, _clean_text(full_text)
 
 
-def _transcribe_cloud_one_sync(audio_path: Path, api_key: str) -> dict[str, Any]:
-    """Call DashScope OpenAI-compatible transcription API for a single audio file."""
-    url = f"{DASHSCOPE_BASE_URL}/audio/transcriptions"
-    headers = {"Authorization": f"Bearer {api_key}"}
+def _transcribe_cloud_one_sync(audio_path: Path) -> dict[str, Any]:
+    """Call Volcengine Doubao flash recognition API for a single audio file."""
+    api_key = _volcengine_api_key()
+    app_id = _volcengine_app_id()
+    access_token = _volcengine_access_token()
 
-    suffix = audio_path.suffix.lower()
-    mime_map = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg"}
-    mime = mime_map.get(suffix, "audio/wav")
+    headers = {
+        "X-Api-Resource-Id": _volcengine_resource_id(),
+        "X-Api-Request-Id": str(uuid4()),
+        "X-Api-Sequence": "-1",
+    }
+    if api_key:
+        headers["X-Api-Key"] = api_key
+    elif app_id and access_token:
+        headers["X-Api-App-Key"] = app_id
+        headers["X-Api-Access-Key"] = access_token
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="未配置火山引擎豆包语音鉴权信息，请在 .env 中设置 VOLCENGINE_SPEECH_API_KEY，或设置 VOLCENGINE_SPEECH_APP_ID 与 VOLCENGINE_SPEECH_ACCESS_TOKEN。",
+        )
 
-    with open(audio_path, "rb") as f:
-        files = {"file": (audio_path.name, f, mime)}
-        data = {
-            "model": CLOUD_MODEL,
-            "response_format": "verbose_json",
-            "timestamp_granularities[]": "segment",
-            "language": "auto",
-        }
-        response = httpx.post(url, headers=headers, files=files, data=data, timeout=600)
+    with audio_path.open("rb") as f:
+        audio_base64 = base64.b64encode(f.read()).decode("utf-8")
 
-    if response.status_code == 401:
-        raise HTTPException(status_code=401, detail="DashScope API Key 无效或已过期，请检查 DASHSCOPE_API_KEY 配置。")
+    payload = {
+        "user": {
+            "uid": "echoscribe",
+        },
+        "audio": {
+            "data": audio_base64,
+        },
+        "request": {
+            "model_name": "bigmodel",
+        },
+    }
+
+    response = httpx.post(VOLCENGINE_ASR_URL, headers=headers, json=payload, timeout=600)
+
+    status_code = response.headers.get("X-Api-Status-Code", "")
+    message = response.headers.get("X-Api-Message", "")
+
+    if response.status_code in {401, 403} or status_code == "40300001":
+        detail = message or "鉴权失败，请检查 API Key，或检查 App ID + Access Token 是否正确。"
+        raise HTTPException(status_code=401, detail=f"火山引擎豆包语音鉴权失败: {detail}")
     if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="DashScope API 请求频率超限，请稍后重试。")
-    if response.status_code != 200:
+        detail = message or "请求频率超限，请稍后重试。"
+        raise HTTPException(status_code=429, detail=f"火山引擎豆包语音限流: {detail}")
+    if response.status_code != 200 or (status_code and status_code != "20000000"):
         detail = ""
         try:
             body = response.json()
-            detail = body.get("error", {}).get("message", "") or str(body)
+            detail = str(body)
         except Exception:
             detail = response.text[:500]
-        raise HTTPException(status_code=response.status_code, detail=f"DashScope API 调用失败: {detail}")
+        if message:
+            detail = f"{message} {detail}".strip()
+        raise HTTPException(status_code=response.status_code or 500, detail=f"火山引擎豆包语音调用失败: {detail}")
 
     return response.json()
 
@@ -1145,7 +1252,6 @@ def _transcribe_cloud_sync(
     media_path: Path,
     duration: float,
     workdir: Path,
-    api_key: str,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """Cloud transcription with chunking support for long files."""
@@ -1173,12 +1279,12 @@ def _transcribe_cloud_sync(
                 job_id,
                 status="transcribing",
                 progress=max(20, progress - 10),
-                message=f"Transcribing chunk {chunk_index}/{total_chunks}." if total_chunks > 1 else "Calling Aliyun Paraformer API.",
+                message=f"Transcribing chunk {chunk_index}/{total_chunks}." if total_chunks > 1 else "Calling Volcengine Doubao Speech API.",
                 currentChunk=chunk_index,
                 totalChunks=total_chunks,
             )
 
-        result_data = _transcribe_cloud_one_sync(chunk_path, api_key)
+        result_data = _transcribe_cloud_one_sync(chunk_path)
         chunk_segments, chunk_text = _cloud_segments_from_response(result_data, chunk_duration)
         all_segments.extend(_offset_segments(chunk_segments, offset, len(all_segments) + 1))
         full_text_parts.append(chunk_text)
@@ -1208,15 +1314,14 @@ def _transcribe_cloud_sync(
 
 
 async def _run_cloud_transcription_job(job_id: str, input_path: Path, workdir: Path) -> None:
-    api_key = _dashscope_api_key()
-    if not api_key:
+    if not _volcengine_api_key() and not (_volcengine_app_id() and _volcengine_access_token()):
         _set_job(
             job_id,
             status="error",
             progress=0,
             message="Transcription failed.",
             finishedAt=_now(),
-            errorMessage="未配置 DASHSCOPE_API_KEY，请在 .env 中设置阿里云百炼 API Key。",
+            errorMessage="未配置火山引擎豆包语音鉴权信息，请在 .env 中设置 VOLCENGINE_SPEECH_API_KEY，或设置 VOLCENGINE_SPEECH_APP_ID 与 VOLCENGINE_SPEECH_ACCESS_TOKEN。",
         )
         shutil.rmtree(workdir, ignore_errors=True)
         return
@@ -1234,11 +1339,12 @@ async def _run_cloud_transcription_job(job_id: str, input_path: Path, workdir: P
             _set_job(job_id, status="transcribing", progress=10, message="Extracting audio from the video file.")
 
         media_path = _extract_audio_if_needed(input_path, workdir)
+        media_path = _transcode_audio_for_cloud(media_path, workdir)
         _set_job(job_id, status="transcribing", progress=12, message="Reading media duration.")
         duration = _duration_seconds(media_path) or _duration_seconds(input_path)
 
         result = await asyncio.to_thread(
-            _transcribe_cloud_sync, media_path, duration, workdir, api_key, job_id
+            _transcribe_cloud_sync, media_path, duration, workdir, job_id
         )
 
         _set_job(
@@ -1277,8 +1383,11 @@ async def _run_cloud_transcription_job(job_id: str, input_path: Path, workdir: P
 
 @app.post("/transcribe/cloud/jobs")
 async def create_cloud_transcription_job(file: UploadFile = File(...)) -> dict[str, Any]:
-    if not _dashscope_api_key():
-        raise HTTPException(status_code=400, detail="未配置 DASHSCOPE_API_KEY，请在 .env 中设置阿里云百炼 API Key。")
+    if not _volcengine_api_key() and not (_volcengine_app_id() and _volcengine_access_token()):
+        raise HTTPException(
+            status_code=400,
+            detail="未配置火山引擎豆包语音鉴权信息，请在 .env 中设置 VOLCENGINE_SPEECH_API_KEY，或设置 VOLCENGINE_SPEECH_APP_ID 与 VOLCENGINE_SPEECH_ACCESS_TOKEN。",
+        )
 
     suffix = Path(file.filename or "media").suffix.lower()
     workdir = Path(tempfile.mkdtemp(prefix="echoscribe-cloud-"))
