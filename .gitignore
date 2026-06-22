@@ -3,6 +3,8 @@
 *.suo
 *.user
 *.DotSettings.user
+.tools/
+gettysburg_test.aiff
 
 # Web app
 apps/web/node_modules/
@@ -14,6 +16,7 @@ apps/web/__pycache__/
 apps/web/local-asr/tmp/
 apps/web/local-asr/uploads/
 apps/web/local-asr/models/
+apps/web/local-asr/.venv/
 apps/web/.env
 apps/web/.env.*
 !apps/web/.env.example
